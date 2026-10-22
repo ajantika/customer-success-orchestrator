@@ -101,109 +101,113 @@ def _guided(db, aid, jid):
 
 
 def _activity(db, aid, jid):
-    st.markdown("#### Agent activity")
     runs = db.q("SELECT * FROM agent_runs WHERE account_id=? ORDER BY id DESC LIMIT 12", (aid,))
     if not runs:
-        st.info("No agent runs for this customer yet. Click “Run onboarding check” or use a scenario button.")
+        st.info("The agent hasn't done anything for this customer yet. Click “Run onboarding check” above, or reply as the customer.")
         return
-    labels = {r["id"]: f"{r['id']} · {r['trigger'].replace('_', ' ')} · {r['started_at'][5:16].replace('T', ' ')}" for r in runs}
     ids = [r["id"] for r in runs]
     if st.session_state.get("sel_run") not in ids or st.session_state.get("_latest_run") != ids[0]:
         st.session_state["sel_run"], st.session_state["_latest_run"] = ids[0], ids[0]
-    rid = st.selectbox("Run", ids, format_func=labels.get, key="sel_run")
+    labels = {r["id"]: f"{r['id']} · {r['trigger'].replace('_', ' ')} · {r['started_at'][5:16].replace('T', ' ')}" for r in runs}
+    rid = st.selectbox("Which run to look at (latest first)", ids, format_func=labels.get, key="sel_run")
     run = next(r for r in runs if r["id"] == rid)
     ex = db.q("SELECT * FROM tool_executions WHERE run_id=? ORDER BY rid", (rid,))
-    mode_cls = "live" if run["mode"] == "live" else "scripted"
-    mlabel = {"live": f"Live AI · {run['model']}", "scripted": "Scripted demo · rule-based, not an LLM", "system": "System action"}[run["mode"]]
-    st.markdown(f'<span class="cso-mode {mode_cls}">{mlabel}</span>', unsafe_allow_html=True)
-
     parsed = [(e, json.loads(e["result"])) for e in ex]
-    sig = f"Trigger: {run['trigger'].replace('_', ' ')}"
+    mlabel = {"live": f"Live AI · {run['model']}", "scripted": "Scripted demo · rule-based, not an LLM", "system": "System action"}[run["mode"]]
+    st.caption(f"Decided by: {mlabel}")
+
+    (st.error if run["outcome"] == "error" else st.warning if run["outcome"] == "step_limit" else st.success)(
+        f"**What happened:** {run['summary']}" + (f"  \n**Error:** {run['error']}" if run["error"] else ""))
+
+    sig = f"The trigger was: {run['trigger'].replace('_', ' ')}."
     cust = db.one("SELECT body, signals FROM interactions WHERE id=?", (run["trigger_ref"].replace("reply:", ""),)) if run["trigger"] == "customer_reply" else None
     if cust:
-        sig = f"Customer message ({json.loads(cust['signals']).get('intent')}): “{cust['body'][:140]}”"
+        sig = f"The customer wrote: “{cust['body'][:140]}” (understood as: {json.loads(cust['signals']).get('intent', '').replace('_', ' ')})."
     elif run["trigger"] == "progress_check":
-        sig = "A human resolved the support task; fresh progress check required."
-    st.markdown(f"**Observed signal** — {sig}")
+        sig = "A person resolved the support task, so the agent re-checked the customer's real progress."
+    st.markdown(f"**What it noticed:** {sig}")
     ev = []
     for e, r in parsed:
         d = r.get("data") or {}
         if e["tool"] == "get_setup_progress" and d:
             nm = d["next_milestone"]["label"] if d["next_milestone"] else "none"
-            ev.append(f"Progress {d['done_count']}/{d['total']}; next: {nm}; data as of {d['data_as_of'][:10]}")
+            ev.append(f"Setup progress: {d['done_count']} of {d['total']} steps done. Next step: {nm}.")
         elif e["tool"] == "get_customer_context" and d and d.get("eligibility"):
             bl = [c["message"] for c in d["eligibility"]["checks"] if not c["passed"]]
-            ev.append("Outreach allowed" if d["eligibility"]["allowed"] else "Outreach blocked: " + "; ".join(bl))
+            ev.append("Allowed to message the customer." if d["eligibility"]["allowed"] else "Not allowed to message yet: " + "; ".join(bl))
         elif e["tool"] == "search_documentation" and d:
-            ev.append("Docs: " + ", ".join(f"{h['doc_id']} › {h['section']} ({h['score']})" for h in d["hits"]) + ("" if d["supported"] else " — not supported"))
+            ev.append("Help articles found: " + ", ".join(f"{h['doc_id']} ({h['section']})" for h in d["hits"]) + ("" if d["supported"] else " (not a good match)"))
         elif e["tool"] == "check_support_cases" and d:
-            ev.append(f"{len(d['open_cases'])} open case(s), {len(d['open_tasks'])} open task(s)")
+            ev.append(f"Open support cases: {len(d['open_cases'])}; open human tasks: {len(d['open_tasks'])}.")
         elif e["tool"] == "get_interaction_history" and d:
-            ev.append(f"{len(d['messages'])} prior message(s); attempted: {', '.join(d['attempted_doc_ids']) or 'none'}")
-    st.markdown("**Evidence**")
-    st.markdown("\n".join(f"- {x}" for x in ev) or "- _none gathered_")
-    st.markdown("**Tools called**")
-    if ex:
-        st.dataframe(pd.DataFrame([{"#": i + 1, "Tool": e["tool"], "Result": ("OK" if e["ok"] else f"FAILED ({e['error']})") + (" · duplicate prevented" if e["deduplicated"] else "")}
-                                   for i, (e, _) in enumerate(parsed)]), hide_index=True, width="stretch")
-        with st.expander("Step details (inputs, outputs, decision summaries)"):
-            for i, (e, r) in enumerate(parsed):
-                st.markdown(f"**{i + 1}. {e['tool']}** — {e['rationale'] or 'decision summary not recorded'}")
-                st.json({"input": json.loads(e["args"]), "output": r.get("data") if r["ok"] else r["error"]}, expanded=False)
-    else:
-        st.caption("No tools were called.")
-    outcome = {"completed": "Completed", "step_limit": "Stopped at step limit", "error": "Error"}.get(run["outcome"], run["outcome"] or "Running")
-    (st.error if run["outcome"] == "error" else st.warning if run["outcome"] == "step_limit" else st.success)(f"**Action / result:** {run['summary']}" + (f"  \n**Error:** {run['error']}" if run["error"] else ""))
-    st.caption(f"Outcome: {outcome} · {run['steps']} tool step(s) (limit {db.get_settings().max_agent_steps})")
+            ev.append(f"Earlier messages read: {len(d['messages'])}. Steps the customer already tried: {', '.join(d['attempted_doc_ids']) or 'none'}.")
+    st.markdown("**What it checked:**")
+    st.markdown("\n".join(f"- {x}" for x in ev) or "- nothing")
     nxt = db.q("SELECT action_type, due_at FROM scheduled_actions WHERE account_id=? AND status='pending' ORDER BY due_at LIMIT 3", (aid,))
-    st.markdown("**Next scheduled step** — " + ("; ".join(f"{n['action_type'].replace('_', ' ')} due {n['due_at'][:10]}" for n in nxt) if nxt else "none scheduled"))
+    st.markdown("**What happens next:** " + ("; ".join(f"{n['action_type'].replace('_', ' ')} on {n['due_at'][:10]}" for n in nxt) if nxt else "nothing is scheduled."))
+    with st.expander("Technical details: tools the agent used"):
+        if ex:
+            st.dataframe(pd.DataFrame([{"#": i + 1, "Tool": e["tool"], "Result": ("OK" if e["ok"] else f"FAILED ({e['error']})") + (" · duplicate prevented" if e["deduplicated"] else ""),
+                                        "Why": e["rationale"] or ""} for i, (e, _) in enumerate(parsed)]), hide_index=True, width="stretch")
+            for i, (e, r) in enumerate(parsed):
+                st.markdown(f"**{i + 1}. {e['tool']}**")
+                st.json({"input": json.loads(e["args"]), "output": r.get("data") if r["ok"] else r["error"]}, expanded=False)
+        else:
+            st.caption("No tools were called.")
+        st.caption(f"{run['steps']} step(s) used; limit is {db.get_settings().max_agent_steps}.")
 
 
 def render():
     db = session.get_db()
-    session.show_flash()
     st.title("Agent workspace")
-    st.markdown(f'<span class="cso-mode {"live" if session.mode() == "live" else "scripted"}">{session.mode_label()}</span> &nbsp; <span class="cso-strip">'
-                + ("Decisions are made by a language model that calls the same validated tools." if session.mode() == "live"
-                   else "Decisions come from deterministic rules, not an LLM. Tools and state changes are real.") + "</span>", unsafe_allow_html=True)
+    st.caption("Watch the assistant check a customer, message them, read replies and hand off to a person. "
+               + ("Decisions are made by an AI model." if session.mode() == "live" else "Decisions come from fixed rules, not an AI model (Scripted demo)."))
     st.session_state.setdefault("channel", "email")
     aid, jid = style.account_picker(db)
-    if not jid:
-        st.warning("This customer has no journeys.")
+    if not aid or not jid:
+        st.info("**Start here:** pick a customer above (Maple Design is the demo customer), or click **Start guided demo** on the Overview page.")
+        session.show_flash()
         return
     prod = db.one("SELECT product FROM journeys WHERE id=?", (jid,))["product"]
     if st.session_state.get("guided"):
         _guided(db, aid, jid)
     j = db.one("SELECT * FROM journeys WHERE id=?", (jid,))
     el = rules.evaluate_outreach(db, jid)
-    left, right = st.columns([3, 2], gap="large")
-    with left:
-        acc = db.one("SELECT name, goal FROM accounts WHERE id=?", (aid,))
-        st.markdown(f"**{acc['name']}** · {PRODUCT_LABEL[prod]} &nbsp; {style.badge(j['state'])}", unsafe_allow_html=True)
-        st.caption("Proactive outreach: " + ("allowed" if el.allowed else "blocked — " + "; ".join(b.message for b in el.blockers[:2])))
-        b1, b2, b3 = st.columns([2, 2, 2])
-        b1.button("Run onboarding check", type="primary", on_click=_check, args=(db, aid, jid), width="stretch",
-                  help="The agent gathers context and decides whether to contact the customer.")
-        b2.button("Run pending actions", on_click=_pending, args=(db,), width="stretch", help="Execute scheduled reminders and resume checks that are due on the demo clock.")
-        st.session_state["fault"] = db.get_settings().fault_create_handoff
-        b3.checkbox("Simulate handoff failure", key="fault", on_change=_toggle_fault, args=(db,), help="Makes the create_handoff tool fail so you can see honest failure handling.")
-        st.radio("Customer channel", ["email", "chat"], horizontal=True, key="channel", help="Simulated. The agent replies on the channel the customer used; history is shared across channels.")
+    acc = db.one("SELECT name FROM accounts WHERE id=?", (aid,))
+    st.markdown(f"**{acc['name']} · {PRODUCT_LABEL[prod]}** &nbsp; {style.badge(j['state'])}", unsafe_allow_html=True)
+    st.caption("Can the agent message this customer on its own right now? " + ("**Yes.**" if el.allowed else "**No** — " + "; ".join(b.message for b in el.blockers[:2]) + "."))
 
+    st.markdown("##### Step 1 · Ask the agent to check this customer")
+    st.button("Run onboarding check", type="primary", on_click=_check, args=(db, aid, jid),
+              help="The agent looks at the customer's goal, progress and history, then decides whether to send help. It may decide to do nothing.")
+    session.show_flash()
+
+    tab_inbox, tab_agent = st.tabs(["Inbox and replies", "What the agent did"])
+    with tab_inbox:
         msgs = db.q("SELECT * FROM interactions WHERE account_id=? AND kind IN ('message','human_update') ORDER BY rid DESC LIMIT 40", (aid,))[::-1]
-        st.markdown("##### Simulated inbox")
-        with st.container(height=430, border=True):
+        with st.container(height=380, border=True):
             if not msgs:
-                st.info("The inbox is empty. Run the onboarding check, or send a customer reply below.")
+                st.info("The inbox is empty. Click “Run onboarding check” above, or reply as the customer below.")
             for m in msgs:
                 style.bubble(m)
-        st.markdown("##### Customer replies")
+        st.markdown("##### Step 2 · Reply as the customer")
+        st.caption("Click one of these to pretend the customer wrote that message. The agent reads it and responds.")
         cols = st.columns(3)
         for i, (label, text) in enumerate(SCENARIOS):
             cols[i % 3].button(label, key=f"sc{i}", width="stretch", on_click=_reply,
                                args=(db, aid, jid, prod, text, st.session_state["channel"], label.startswith("Setup is now")))
-        st.caption("“Setup is now complete.” also emits real synthetic product events for the remaining milestones before the agent checks them.")
-        st.selectbox("Or pick an example (including edge cases)", EXAMPLES, key="example_pick", on_change=_example, format_func=lambda x: x or "Choose an example…")
-        st.text_area("Reply as the customer", key="reply_text", height=80, max_chars=1000)
-        st.button("Send customer reply", on_click=_send_typed, args=(db, aid, jid, prod), disabled=not st.session_state.get("reply_text", "").strip())
-    with right:
+        with st.expander("Write your own reply or try an edge case"):
+            st.selectbox("Example messages", EXAMPLES, key="example_pick", on_change=_example, format_func=lambda x: x or "Choose an example…")
+            st.text_area("Customer's message", key="reply_text", height=80, max_chars=1000)
+            st.button("Send as customer", on_click=_send_typed, args=(db, aid, jid, prod), disabled=not st.session_state.get("reply_text", "").strip())
+    with tab_agent:
         _activity(db, aid, jid)
+
+    with st.expander("Advanced options"):
+        st.radio("How the customer writes back", ["email", "chat"], horizontal=True, key="channel",
+                 help="Email = a longer formal message. Chat = a short live message. The agent replies the same way the customer wrote, and remembers the conversation from both.")
+        st.session_state["fault"] = db.get_settings().fault_create_handoff
+        st.checkbox("Simulate handoff failure", key="fault", on_change=_toggle_fault, args=(db,),
+                    help="Makes the ticket-creation step fail, to show the agent admitting that nothing was created. Turn off for the normal demo.")
+        st.button("Run pending actions", on_click=_pending, args=(db,),
+                  help="Runs any scheduled reminders that are due on the demo clock (move the clock forward with +1d / +3d / +7d in the sidebar).")

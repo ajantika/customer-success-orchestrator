@@ -81,9 +81,11 @@ def account_picker(db, key: str = "sel_acc", with_product: bool = True) -> tuple
     ids = [a["id"] for a in accts]
     labels = {a["id"]: f"{a['name']} ({a['id']})" for a in accts}
     if st.session_state.get(key) not in ids:
-        st.session_state[key] = ids[0]
+        st.session_state[key] = None
     c1, c2 = st.columns([2, 3])
-    aid = c1.selectbox("Customer", ids, format_func=labels.get, key=key)
+    aid = c1.selectbox("Customer", ids, format_func=labels.get, key=key, index=None, placeholder="Select a customer…")
+    if aid is None:
+        return None, None
     jid = None
     if with_product:
         js = db.q("SELECT id, product, state FROM journeys WHERE account_id=? ORDER BY product", (aid,))

@@ -16,6 +16,9 @@ def render():
     session.show_flash()
     st.title("Customer workspace")
     aid, jid = style.account_picker(db, with_product=False)
+    if not aid:
+        st.info("Select a customer above to see their goal, setup progress, open issues and full timeline.")
+        return
     acc = db.one("SELECT * FROM accounts WHERE id=?", (aid,))
     contact = rules.admin_contact(db, aid)
     now = db.now()

@@ -11,6 +11,8 @@ def _script(page: str):
     nav.PAGES.update({k: st.Page(m.render, title=k, url_path=k) for k, m in mods.items()})
     style.inject()
     session.get_db()
+    if st.session_state.get("sel_acc") is None and not st.session_state.get("_picked"):
+        st.session_state["sel_acc"] = "ACC-001"
     mods[st.session_state.get("_page", page)].render()
 
 

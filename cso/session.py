@@ -13,7 +13,7 @@ FEATURED = "ACC-001"
 def get_db() -> DB:
     if "db" not in st.session_state:
         st.session_state["db"] = build_db()
-        st.session_state.setdefault("sel_acc", FEATURED)
+        st.session_state.setdefault("sel_acc", None)
         st.session_state.setdefault("sel_prod", "docs")
         st.session_state.setdefault("nonce", 0)
     return st.session_state["db"]
@@ -23,7 +23,7 @@ def reset_demo():
     for k in ("flash", "guided", "last_scan", "reply_text", "sel_run"):
         st.session_state.pop(k, None)
     st.session_state["db"] = build_db()
-    st.session_state["sel_acc"], st.session_state["sel_prod"] = FEATURED, "docs"
+    st.session_state["sel_acc"], st.session_state["sel_prod"] = None, "docs"
     st.session_state["nonce"] = st.session_state.get("nonce", 0) + 1
     flash("success", "Demo data reset to the seeded state.")
 
