@@ -2,6 +2,8 @@
 
 > **Independent portfolio prototype • Synthetic customer data.** Not affiliated with any company. Every customer, event and metric is generated.
 
+**Live demo: https://customer-success-orchestrator.streamlit.app/**
+
 A working prototype of an agentic customer-success platform for a fictional SaaS company, **TeamNest** (products: Tasks, Docs, Support). It shows how product signals become **personalised guidance, agent actions and human handoffs**, with business rules enforced in application code rather than left to a model.
 
 One onboarding agent runs a bounded loop over ten validated tools. Tools really change state: they write messages to a simulated inbox, create human tasks, pause journeys and cancel reminders. Retries and Streamlit reruns cannot duplicate them.
