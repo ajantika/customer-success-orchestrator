@@ -75,5 +75,5 @@ def render():
     snap["product"] = snap["product"].map(PRODUCT_LABEL)
     st.dataframe(snap.pivot_table(index="state", columns="product", values="n", fill_value=0, aggfunc="sum"), width="stretch")
     with st.expander("About this prototype"):
-        st.markdown("TeamNest is a fictional SaaS company with three products (Tasks, Docs, Support). All customers, usage and history are synthetic. "
+        st.markdown("This is a fictional SaaS company with three products (Tasks, Docs, Support). All customers, usage and history are synthetic. "
                     "Public demo state lives in your browser session only and resets when the session ends. See the README for scope and limits.")

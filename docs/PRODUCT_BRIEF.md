@@ -1,6 +1,6 @@
 # Product brief
 
-*Independent portfolio prototype. Fictional company (TeamNest), synthetic data.*
+*Independent portfolio prototype. Fictional company, synthetic data.*
 
 ## Customer problem
 Customers who buy several products rarely adopt them all at once. Teams see stalled setup in usage data but struggle to act: signals are scattered (product events, rollout plans, support cases, past conversations), outreach can collide with an open support issue, and when an agent or bot can't help, the human who picks it up starts from zero. Result: well-meant reminders arrive at the wrong time, customers repeat themselves, and nobody owns the gap.

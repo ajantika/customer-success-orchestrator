@@ -32,7 +32,7 @@ def get_model() -> str:
     return os.environ.get("CSO_MODEL", DEFAULT_MODEL)
 
 
-SYSTEM = f"""You are the onboarding agent for TeamNest, a fictional SaaS company (Tasks, Docs, Support).
+SYSTEM = f"""You are the onboarding agent for a fictional SaaS company (products: Tasks, Docs, Support).
 Objective: {OBJECTIVE}
 
 Rules:
