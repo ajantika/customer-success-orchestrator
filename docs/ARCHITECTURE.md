@@ -1,51 +1,54 @@
 # Architecture
 
-## System diagram
+## Shared data architecture
 ```
-Streamlit pages (cso/ui)  ──button callbacks only──►  services.py
-                                                         │
-                                          ┌──────────────┴───────────────┐
-                                          ▼                              ▼
-                                   rules.ingest_customer_message    agent.run_agent (bounded loop)
-                                   (screen + record, no actions)         │ asks a decider for the next tool call
-                                                                         │   ScriptedDecider (rules)  |  LiveDecider (LLM)
-                                                                         ▼
-                                                        tools.execute_tool  ← validation, account boundary, idempotency, fault injection
-                                                                         │
-                                         ┌───────────────┬───────────────┼───────────────┐
-                                         ▼               ▼               ▼               ▼
-                                     rules.py        retrieval.py     db.py (SQLite, in-memory, per session)
-                                  (eligibility,     (TF-IDF over kb/)  accounts, journeys, interactions,
-                                   transitions)                        tasks, runs, tool_executions, guard_log
+Streamlit pages (cso/ui) ──button callbacks only──► services.py (onboarding)  /  team.py (Account Team)
+                                                          │
+                                       rules.ingest_customer_message          agent.run_agent (bounded loop)
+                                       (screen + record, no actions)                │ asks a decider for the next tool call
+                                                                                    │   ScriptedDecider (rules, "Demo mode") | LiveDecider (model)
+                                                                                    ▼
+                                                    tools.execute_tool: validation → allow-list → account boundary →
+                                                    idempotency → fault injection → run → evidence + audit record
+                                                                                    │
+                                   ┌──────────────┬────────────────┬────────────────┴───────────────┐
+                                   ▼              ▼                ▼                                ▼
+                               rules.py     retrieval.py       training catalog              SQLite (in memory, per session)
+                          (eligibility,     (TF-IDF over kb/)  (courses, prerequisites)      accounts, subscriptions, rollout plans,
+                           transitions)                                                      product events, support cases, interactions,
+                                                                                             journeys, tasks, meetings, learner records,
+                                                                                             recommendations, feedback, outcomes, runs, tool executions
 ```
+Both workflows use the same account, product-event, support-case, documentation and rules layers. The Account Team workflow adds meetings, learner records, a course catalog, recommendations and review feedback.
 
-## Data flow
-1. A click calls a service. Rendering never calls one.
-2. Inbound customer text is stored as untrusted data with keyword signals (`intent`). If it says the customer already tried the steps, the docs from the last agent message are recorded on the journey as attempted. The text itself is never executed or trusted for permissions.
-3. `run_agent` creates a run, then loops: decider proposes a `Call`, the tool layer validates and executes it, the result goes back to the decider. The loop ends on `Finish`, an LLM error, or the step limit (default 10).
-4. Every call is recorded in `tool_executions`; guard events (blocked sends, duplicates prevented, rejected overrides) go to `guard_log`.
+## Agent, tools and allowed actions
+One loop, two permitted tool sets (enforced per run by an allow-list):
 
-## Agent and tools
-Objective: *help eligible customers reach planned onboarding milestones using relevant guidance, while respecting preferences and escalating unresolved problems.*
+| Tool | Workflow | Type | Notes |
+|---|---|---|---|
+| get_customer_context | both | read | goal, plan, journeys, masked contact, eligibility with reasons |
+| get_setup_progress | both | read | milestones from product events, freshness, 14-day vs prior-30-day activity |
+| get_interaction_history | onboarding | read | cross-channel messages, tried and sent documents |
+| search_documentation | both | read | TF-IDF; `supported` flag; records which documents (and cross-references) were retrieved |
+| check_support_cases | both | read | open cases and tasks |
+| send_guidance | onboarding | write | kinds: proactive, reply, status update, confirmation; rules can refuse; citations validated |
+| pause_journey / resume_journey | onboarding | write | cancel or schedule reminders |
+| create_handoff | onboarding | write | one open task per product; full context |
+| update_journey_status | onboarding | write | completion needs fresh progress; opt-out cascades |
+| get_meeting_context | Account Team | read | purpose, date, owner, changed/cancelled/past, lifecycle stage |
+| get_learning_progress | Account Team | read | learner records per course, freshness, missing data |
+| search_training_catalog | Account Team | read | courses, prerequisites, free or paid, availability |
+| get_account_blockers | Account Team | read | open cases/tasks, rollout status, earlier recommendations (dismissed/deferred) |
+| save_recommendation | Account Team | write | validates evidence, courses, prerequisites, paid justification, duplicates |
+| record_recommendation_feedback | **human only** | write | review, accept, edit, dismiss, defer, discuss; refused for agent runs |
 
-| Tool | Reads/writes | Notes |
-|---|---|---|
-| get_customer_context | read | goal, plan, journeys, masked contact, **eligibility with reasons** |
-| get_setup_progress | read | milestones from product events, data freshness |
-| get_interaction_history | read | cross-channel messages, attempted/sent docs |
-| search_documentation | read | TF-IDF; returns `supported` flag |
-| check_support_cases | read | open cases and tasks |
-| send_guidance | write | kinds: proactive, reply, status_update, confirmation; rules can refuse |
-| pause_journey | write | cancels reminders; schedules resume check |
-| resume_journey | write | only from paused or resolved-awaiting-check |
-| create_handoff | write | creates case + task with full context; never duplicates |
-| update_journey_status | write | completion requires fresh progress; opt-out cascades |
+Inputs and outputs are Pydantic models (`extra="forbid"`). There is no free-form SQL or code execution. The agent cannot send real email, enrol, schedule or buy.
 
-Inputs/outputs are Pydantic models (`extra="forbid"`). There is no free-form SQL or code execution anywhere.
+## Evidence and citations
+Read tools return evidence items (ID, label, source, timestamp). `save_recommendation` accepts only evidence IDs gathered in that run, and a training recommendation must cite learner-record and catalog evidence. `send_guidance` rejects a message that cites a document ID it does not list, and a listed document that was not retrieved in the run. Documents referenced inside an excerpt (for example "see DOC-104") are retrievable cross-references and appear as sources too.
 
-## State model
-Journey state is separate from milestone status (derived from product events).
-
+## State models
+**Customer journey** (separate from milestone status, which comes from product events)
 ```
 monitoring ─► guidance_sent ─► waiting_for_customer ─┐
    │  ▲            │                  │              │
@@ -54,22 +57,25 @@ monitoring ─► guidance_sent ─► waiting_for_customer ─┐
    ├─► waiting_for_human ─► resolved_awaiting_progress_check ─► monitoring / guidance_sent / waiting_for_customer
    └─► completed (terminal)      opted_out (terminal)  ◄── reachable from every non-terminal state
 ```
-The full transition table is `TRANSITIONS` in `cso/models.py`; `set_journey_state` refuses anything else. `waiting_for_human` can also move to `completed` if fresh product events prove setup is done; any open task then stays for the operator to close.
+**Recommendation**
+```
+generated ─► reviewed ─► accepted ──► discussed (terminal)
+    │            │          ▲ │
+    │            ├─► edited ┘ └─► dismissed (terminal, reason required)
+    │            ├─► deferred ─► reviewed / accepted / edited / dismissed   (reason required)
+    └─► (acting directly records "reviewed" first)        withdrawn (system: meeting cancelled or date changed)
+```
+**Customer learning outcomes** (enrolled, started, completed) live in learner records and a separate outcomes table. No recommendation transition writes to them.
 
-## Business rules (code, not prompts)
-`rules.evaluate_outreach` returns a list of named checks: missing data, opt-out, journey open, stale data, setup incomplete, rollout started, no blocking case, stalled for ≥ threshold, frequency limits, unanswered cap. `send_guidance` calls it before writing a message, so the same gate applies to scripted and live runs. Replies, status updates and opt-out confirmations use a smaller set (contact present, not opted out, journey open, unanswered inbound for replies).
+## Human review and feedback
+Every action writes a feedback record: recommendation ID, account ID, meeting ID, reviewer (synthetic identity), action, reason, note, timestamp, original content and revised content. The original recommendation text is never overwritten. A feedback summary (dismissal reasons, edited recommendations, accepted-but-not-discussed, repeated information gaps) supports roadmap decisions. Nothing feeds back into agent policy automatically.
 
-## Account isolation
-- Each Streamlit session builds its own in-memory SQLite database; nothing is shared across visitors.
-- Within a session, a run is bound to one `account_id`. Any tool call naming another account is refused (`account_boundary`) and logged. Journey and contact IDs are checked to belong to that account.
-- API keys live in the session or environment and never enter the database or UI.
+## Selection and navigation
+Selected customer, product, task, meeting, reviewer and the active view live in plain session keys. Widgets mirror those values every run and update them through `on_change`. This avoids two Streamlit behaviours that caused the earlier "selector disappeared" bug: widget state is dropped when the widget is not rendered on a run (another page), and a widget is recreated when its option labels change (the earlier product radio put a changing journey status in its labels). Option values are stable IDs. Button callbacks request navigation with `session.goto`, and `app.py` performs the page switch.
 
-## Failure handling
-- A tool returns `ok=false` with a code; scripted flows and the live prompt both require message text to match the result (Check 08).
-- Idempotency keys (`trigger|journey|tool|discriminator`) make retries safe; handoffs also dedupe on an open task.
-- Live API errors become `outcome=error` on the run with a user-readable message. No scripted substitution.
-- Step limit stops runaway loops.
-- Unexpected exceptions inside tools return `internal_error` rather than crashing the session.
-
-## Time
-A demo clock replaces wall time. Advancing it runs a simulated sync that refreshes product data (except the one account seeded as stale). Scheduled actions run only when the user clicks **Run pending actions** or the daily scan.
+## Account isolation, failure handling, time
+- Each session has its own in-memory database; API keys live in the session or environment, never the database or UI.
+- A run is bound to one account. Tools refuse other accounts, and journey, contact and meeting IDs are checked to belong to it.
+- Tools return explicit failures, split in the metrics into expected policy blocks, technical failures and duplicates prevented.
+- Idempotency keys, natural de-duplication (open task, existing recommendation) and a step limit protect against retries, reruns and loops.
+- A demo clock replaces wall time. Scheduled work runs only when a button is clicked.

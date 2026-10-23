@@ -8,6 +8,7 @@
 | **Customer Success** | Journey design: milestones, goals, stall thresholds, message content standards, who gets contacted; the decision log | Data pipelines, model internals |
 | **Support** | The handoff queue: triage, SLAs, resolution notes, feedback on what context was missing; troubleshooting documentation accuracy | Journey thresholds |
 | **Engineering (incl. data and AI)** | Event pipelines and data quality, tool/API contracts, agent runtime, retrieval, safety guards, logging, deployment | Customer-facing policy decisions |
+| **Enablement / Education** | Course catalog accuracy, prerequisites, availability and free alternatives; response to content-gap feedback | Account-level recommendations |
 | **Analytics** | Metric definitions, experiment design, cohort analysis, evaluation set and human-rating process, reporting | Writing journey rules |
 | **Privacy / Legal (consulted)** | Consent and contact governance, opt-out handling, retention | Day-to-day tuning |
 
@@ -32,3 +33,11 @@
 
 ## Cadence
 Weekly operating review (handoff volume, tool errors, blocked-send reasons, opt-outs); monthly rating session on a sample of agent messages; quarterly threshold review.
+
+## Account Team workflow
+- **Account Executives and Solutions Architects** review, edit, accept, dismiss or defer recommendations and mark them discussed. They own what is said to the customer; nothing is sent automatically.
+- **Enablement** acts on repeated "customer already trained", "missing information" and content-gap feedback.
+- **Engineering** keeps tool contracts, evidence rules and allow-lists; changes to what counts as evidence go through the decision log.
+- **Analytics** defines brief and recommendation measures, runs the rating sessions (timing, role fit, prerequisite fit, usefulness) and designs any pilot comparison.
+- **Review of changes** follows the same steps as above, plus a check that new recommendation types still require evidence, reviewer action and a reason for dismissal or deferral.
+- **Cadence:** a monthly review of dismissal reasons and edited recommendations feeds the roadmap. The assistant does not change its own behaviour from feedback.

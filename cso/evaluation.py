@@ -11,11 +11,17 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from . import rules, services as S
+from . import rules, services as S, team as T
 from .datagen import build_db
 from .db import DB, to_iso
-from .tools import ToolContext, execute_tool
+from .tools import TEAM_TOOLS, ToolContext, execute_tool
 
+REC_CRITERIA = {
+    "timing": "Is this the right moment to raise it (rollout state, open issues, meeting date)?",
+    "role_fit": "Does it fit the learners' roles and the customer's goal?",
+    "prerequisite_fit": "Are prerequisites and prior completions handled correctly?",
+    "usefulness": "Is the proposed next action useful for the meeting?",
+}
 CRITERIA = {
     "relevance": "Does the message address what the customer said or needs next?",
     "groundedness": "Are product claims supported by the cited documents (nothing invented)?",
@@ -100,6 +106,7 @@ def c05(db):
     aid, jid = _maple_docs(db)
     S.run_onboarding_check(db, aid, jid)
     S.handle_customer_message(db, aid, jid, "email", "We're having trouble connecting our employee directory.")
+    S.handle_customer_message(db, aid, jid, "email", "We see an authentication error.")
     sent = json.loads(db.one("SELECT signals FROM interactions WHERE actor='agent' AND kind='message' ORDER BY rid DESC LIMIT 1")["signals"])["guidance_docs"]
     S.handle_customer_message(db, aid, jid, "email", "We already tried those steps, and it still fails.")
     att = json.loads(db.one("SELECT attempted_docs FROM journeys WHERE id=?", (jid,))["attempted_docs"])
@@ -244,6 +251,242 @@ CASES = [
 ]
 
 
+# ------------------------------------------------- Account Team checks ---
+NS = T.NORTHSTAR
+MT = T.NS_MEETING
+
+
+def _prep(db, scenario=None):
+    if scenario:
+        T.apply_scenario(db, scenario)
+    r = T.prepare_meeting_brief(db, MT)
+    return r, T.latest_rec(db, MT)
+
+
+def _team_ctx(db):
+    """A fresh agent context that has gathered the evidence a recommendation may cite."""
+    ctx = ToolContext(db, None, NS, allowed=TEAM_TOOLS, retrieved=set())
+    ev = {}
+    for name, args in (("get_meeting_context", {"meeting_id": MT}), ("get_customer_context", {}), ("get_setup_progress", {"product": "docs"}),
+                       ("get_learning_progress", {"product": "docs"}), ("get_account_blockers", {}), ("search_training_catalog", {"query": "shared documentation workflow", "product": "docs"})):
+        r = execute_tool(ctx, name, {"account_id": NS, **args})
+        ev[name] = [e["id"] for e in (r["data"] or {}).get("evidence", [])]
+    return ctx, [i for v in ev.values() for i in v]
+
+
+def _save_args(refs, **kw):
+    base = {"account_id": NS, "meeting_id": MT, "action_type": "training", "title": "Discuss the next learning module", "why_now": "Adoption is quiet and few learners finished the next module.",
+            "talking_point": "Ask whether the team needs help applying the workflow.", "brief": "Short brief for the meeting with the customer team.", "course_ids": ["CRS-102"], "evidence_refs": refs}
+    return {**base, **kw}
+
+
+def t16(db):
+    r, rec = _prep(db, "course_completed")
+    ok = rec and rec["action_type"] == "discovery" and json.loads(rec["courses"]) == []
+    ctx, refs = _team_ctx(db)
+    d = execute_tool(ctx, "save_recommendation", _save_args(refs))
+    return bool(ok) and d["error"]["code"] == "already_completed", f"action={rec and rec['action_type']}, no courses; direct re-recommendation -> {d['error']['code'] if d['error'] else 'accepted'}"
+
+
+def t17(db):
+    T.apply_scenario(db, "unmet_prerequisite")
+    ctx, refs = _team_ctx(db)
+    d = execute_tool(ctx, "save_recommendation", _save_args(refs))
+    r, rec = _prep(db)
+    ids = [c["course_id"] for c in json.loads(rec["courses"])] if rec else []
+    return d["error"]["code"] == "prerequisite_unmet" and ids == ["CRS-101"], f"direct CRS-102 -> {d['error']['code']}; assistant recommended {ids} (the prerequisite)"
+
+
+def t18(db):
+    out = []
+    for scen in ("missing_learners", "stale_learners"):
+        r, rec = _prep(db, scen)
+        out.append((scen, rec and rec["action_type"], rec and json.loads(rec["courses"]) == []))
+    return all(a == "clarify" and c for _, a, c in out), f"results {[(n, a) for n, a, _ in out]}"
+
+
+def t19(db):
+    r, rec = _prep(db, "technical_blocker")
+    ok = rec and rec["action_type"] == "technical_followup" and json.loads(rec["courses"]) == []
+    return bool(ok), f"action={rec and rec['action_type']}; no training recommended while the blocker is open"
+
+
+def t20(db):
+    r, rec = _prep(db, "already_dismissed")
+    n1 = db.one("SELECT COUNT(*) n FROM recommendations WHERE meeting_id=? AND status!='withdrawn'", (MT,))["n"]
+    T.prepare_meeting_brief(db, MT)
+    n2 = db.one("SELECT COUNT(*) n FROM recommendations WHERE meeting_id=? AND status!='withdrawn'", (MT,))["n"]
+    dismissed_msg = "was dismissed" in r["summary"]
+    # deferral
+    T.restore_northstar(db)
+    T.prepare_meeting_brief(db, MT)
+    rec2 = T.latest_rec(db, MT)
+    T.review(db, rec2["id"], "deferred", "Riley Chen", "Wrong timing", None, None, None)
+    r3 = T.prepare_meeting_brief(db, MT)
+    n3 = db.one("SELECT COUNT(*) n FROM recommendations WHERE meeting_id=?", (MT,))["n"]
+    return dismissed_msg and n1 == n2 == 1 and "deferred" in r3["summary"] and n3 == 1, f"dismissed: '{r['summary'][:70]}'; recs stayed at {n1}/{n2}; deferred: '{r3['summary'][:70]}'; total recs={n3}"
+
+
+def t21(db):
+    a = T.scan_upcoming(db, 7)
+    n1 = db.one("SELECT COUNT(*) n FROM recommendations WHERE origin='session'")["n"]
+    b = T.scan_upcoming(db, 7)
+    n2 = db.one("SELECT COUNT(*) n FROM recommendations WHERE origin='session'")["n"]
+    return n1 > 0 and n1 == n2, f"first scan created {n1} recommendation(s); repeating the scan left it at {n2}"
+
+
+def t22(db):
+    other = db.one("SELECT account_id aid, id mid FROM meetings WHERE account_id!=? AND status='scheduled' LIMIT 1", (NS,))
+    ctx = ToolContext(db, None, NS, allowed=TEAM_TOOLS, retrieved=set())
+    r1 = execute_tool(ctx, "get_learning_progress", {"account_id": other["aid"], "product": "docs"})
+    r2 = execute_tool(ctx, "get_meeting_context", {"account_id": NS, "meeting_id": other["mid"]})
+    r3 = execute_tool(ctx, "save_recommendation", _save_args([], meeting_id=other["mid"], action_type="clarify", course_ids=[]))
+    codes = [r1["error"]["code"], r2["error"]["code"], r3["error"]["code"]]
+    return codes == ["account_boundary"] * 3, f"cross-account Account Team calls -> {codes}"
+
+
+def t23(db):
+    ctx, refs = _team_ctx(db)
+    bad_course = execute_tool(ctx, "save_recommendation", _save_args(refs, course_ids=["CRS-999"]))
+    bad_evidence = execute_tool(ctx, "save_recommendation", _save_args(refs + ["E99"]))
+    return bad_course["error"]["code"] == "invalid_input" and bad_evidence["error"]["code"] == "unsupported_evidence", \
+        f"unknown course -> {bad_course['error']['code']}; evidence never gathered -> {bad_evidence['error']['code']}"
+
+
+def t24(db):
+    r, rec = _prep(db)
+    before = db.q("SELECT learner_id, course_id, status FROM learner_records WHERE account_id=? ORDER BY id", (NS,))
+    T.review(db, rec["id"], "accepted", "Riley Chen")
+    after = db.q("SELECT learner_id, course_id, status FROM learner_records WHERE account_id=? ORDER BY id", (NS,))
+    outcomes = db.one("SELECT COUNT(*) n FROM learning_outcomes WHERE rec_id=?", (rec["id"],))["n"]
+    status_ = db.one("SELECT status FROM recommendations WHERE id=?", (rec["id"],))["status"]
+    return before == after and outcomes == 0 and status_ == "accepted", f"status={status_}; learner records unchanged ({len(after)} rows); enrolment outcomes={outcomes}"
+
+
+def t25(db):
+    r, rec = _prep(db)
+    orig = rec["content_original"]
+    T.review(db, rec["id"], "edited", "Riley Chen", None, "Shortened", {"talking_point": "Ask who owns the workflow first."})
+    now = db.one("SELECT * FROM recommendations WHERE id=?", (rec["id"],))
+    fb = db.one("SELECT original, revised FROM rec_feedback WHERE rec_id=? AND action='edited'", (rec["id"],))
+    ok = now["content_original"] == orig and now["talking_point"] == "Ask who owns the workflow first." and json.loads(fb["original"])["talking_point"] == json.loads(orig)["talking_point"] and fb["revised"]
+    return bool(ok), "original text preserved in the recommendation and the feedback record; revised text stored separately"
+
+
+def t26(db):
+    r, rec = _prep(db)
+    n = T.cancel_meeting(db, MT)
+    st_ = db.one("SELECT status FROM recommendations WHERE id=?", (rec["id"],))["status"]
+    r2 = T.prepare_meeting_brief(db, MT)
+    created = db.one("SELECT COUNT(*) n FROM recommendations WHERE meeting_id=? AND status!='withdrawn'", (MT,))["n"]
+    return n == 1 and st_ == "withdrawn" and created == 0 and "cancelled" in r2["summary"], f"withdrawn={n}; status={st_}; after cancellation: '{r2['summary'][:70]}'"
+
+
+def t27(db):
+    ctx, refs = _team_ctx(db)
+    only_meeting = [i for i in refs if ctx.evidence[i]["source"] in ("meeting", "account_goal")]
+    d = execute_tool(ctx, "save_recommendation", _save_args(only_meeting))
+    e = execute_tool(ctx, "save_recommendation", _save_args([]))
+    return d["error"]["code"] == "unsupported_evidence" and e["error"]["code"] == "unsupported_evidence", \
+        f"training claim without learner-record and catalog evidence -> {d['error']['code']}; no evidence at all -> {e['error']['code']}"
+
+
+def t28(db):
+    T.apply_scenario(db, "paid_workshop")
+    ctx, refs = _team_ctx(db)
+    d = execute_tool(ctx, "save_recommendation", _save_args(refs, course_ids=["CRS-104"]))
+    r, rec = _prep(db)
+    c = json.loads(rec["courses"])[0] if rec else {}
+    return d["error"]["code"] == "paid_needs_justification" and c.get("paid") and c.get("free_alternatives_considered"), \
+        f"paid course without justification -> {d['error']['code']}; assistant's paid recommendation records free alternatives considered"
+
+
+def t29(db):
+    r, rec = _prep(db)
+    agent_ctx = ToolContext(db, None, NS, actor="agent", allowed=TEAM_TOOLS)
+    a = execute_tool(agent_ctx, "record_recommendation_feedback", {"account_id": NS, "rec_id": rec["id"], "action": "accepted", "reviewer": "Riley Chen"})
+    onb = ToolContext(db, None, NS, allowed={"get_customer_context"})
+    b = execute_tool(onb, "save_recommendation", _save_args([]))
+    same = db.one("SELECT status FROM recommendations WHERE id=?", (rec["id"],))["status"]
+    return a["error"]["code"] == "tool_not_permitted" and b["error"]["code"] == "tool_not_permitted" and same == "generated", \
+        f"agent cannot record review actions ({a['error']['code']}); tools outside the workflow's allow-list refused ({b['error']['code']}); status stays {same}"
+
+
+def t30(db):
+    S.run_onboarding_check(db, "ACC-001", db.one("SELECT id FROM journeys WHERE account_id='ACC-001' AND product='docs'")["id"])
+    c = db.one("SELECT id FROM journeys WHERE account_id='ACC-001' AND product='docs'")["id"]
+    S.run_onboarding_check(db, "ACC-001", c)
+    ctx = ToolContext(db, None, "ACC-001")
+    execute_tool(ctx, "send_guidance", {"account_id": "ACC-001", "journey_id": c, "contact_id": rules.admin_contact(db, "ACC-001")["id"], "channel": "email", "kind": "proactive", "body": "Hello, again."})
+    db.save_settings(db.get_settings().model_copy(update={"fault_create_handoff": True}))
+    S.handle_customer_message(db, "ACC-001", c, "email", "We already tried those steps, and it still fails.")
+    m = S.session_metrics(db)
+    return m["tool_policy_blocks"] >= 1 and m["tool_technical_failures"] >= 1 and m["tool_success"] > 0, \
+        f"success={m['tool_success']}, expected policy blocks={m['tool_policy_blocks']}, technical failures={m['tool_technical_failures']}, duplicates={m['duplicates_prevented']} (counted separately)"
+
+
+def t31(db):
+    aid, jid = _maple_docs(db)
+    S.run_onboarding_check(db, aid, jid)
+    S.handle_customer_message(db, aid, jid, "email", "The directory connection is failing.")
+    q = _agent_msgs(db, aid)[-1]
+    asked = "authentication error, a timeout" in q["body"] and json.loads(q["sources"]) == []
+    S.handle_customer_message(db, aid, jid, "email", "We see an authentication error.")
+    a = _agent_msgs(db, aid)[-1]
+    srcs = json.loads(a["sources"])
+    docs = {x["doc_id"] for x in srcs}
+    cited = set(__import__("re").findall(r"DOC-\d{3}", a["body"]))
+    timeouts = "timed out" in a["body"].lower()
+    first = _agent_msgs(db, aid)[0]
+    fsrc = {x["doc_id"] for x in json.loads(first["sources"])}
+    fcited = set(__import__("re").findall(r"DOC-\d{3}", first["body"]))
+    return asked and "DOC-105" in docs and cited <= docs and not timeouts and fcited <= fsrc, \
+        f"unknown error -> one clarifying question; after 'authentication error' -> {sorted(docs)} cited {sorted(cited)} (only the matching section); proactive message cites {sorted(fcited)} and lists {sorted(fsrc)}"
+
+
+def t32(db):
+    r, rec = _prep(db)
+    T.reschedule_meeting(db, MT, 2)
+    flagged = db.one("SELECT needs_refresh FROM recommendations WHERE id=?", (rec["id"],))["needs_refresh"]
+    r2, rec2 = _prep(db)
+    old = db.one("SELECT status FROM recommendations WHERE id=?", (rec["id"],))["status"]
+    return flagged == 1 and old == "withdrawn" and rec2["id"] != rec["id"] and rec2["status"] == "generated", f"old recommendation flagged then withdrawn ({old}); new one {rec2['id']} generated for the new date"
+
+
+def t33(db):
+    r, rec = _prep(db)
+    T.view_brief(db, MT, "Riley Chen")
+    T.view_brief(db, MT, "Riley Chen")
+    T.view_brief(db, MT, "Riley Chen")
+    n = db.one("SELECT COUNT(*) n FROM meeting_events WHERE meeting_id=? AND event='brief_viewed' AND origin='session'", (MT,))["n"]
+    return n == 1, f"three view events for one reviewer counted as {n}"
+
+
+def t34(db):
+    pid = db.one("SELECT id, account_id FROM meetings WHERE account_id IN (SELECT id FROM accounts WHERE lifecycle='prospect') LIMIT 1")
+    r = T.prepare_meeting_brief(db, pid["id"])
+    rec = T.latest_rec(db, pid["id"])
+    usage = db.one("SELECT COUNT(*) n FROM product_events WHERE account_id=?", (pid["account_id"],))["n"]
+    learners = db.one("SELECT COUNT(*) n FROM learner_records WHERE account_id=?", (pid["account_id"],))["n"]
+    return rec and rec["action_type"] == "discovery" and usage == 0 and learners == 0 and json.loads(rec["courses"]) == [], \
+        f"prospect has {usage} usage events and {learners} learner records; recommendation type={rec and rec['action_type']} with no training invented"
+
+
+CASES += [
+    ("16", "Already-completed training is not recommended again", t16), ("17", "Unmet prerequisites lead to the prerequisite first", t17),
+    ("18", "Missing or stale learner data leads to a clarification", t18), ("19", "A technical blocker leads to technical follow-up", t19),
+    ("20", "Dismissed and deferred recommendations are respected", t20), ("21", "Repeated scans do not duplicate recommendations", t21),
+    ("22", "Account isolation holds for Account Team tools", t22), ("23", "Invalid course or evidence citations are rejected", t23),
+    ("24", "Accepting a recommendation does not create enrolment", t24), ("25", "Edits preserve the original recommendation", t25),
+    ("26", "Meeting cancellation withdraws pending recommendations", t26), ("27", "Unsupported claims are excluded from recommendations", t27),
+    ("28", "Paid options need a justification and free alternatives", t28), ("29", "Review actions and tool allow-lists are enforced", t29),
+    ("30", "Policy blocks, technical failures and duplicates are counted separately", t30),
+    ("31", "Unknown error: one clarifying question, then only the matching, cited section", t31),
+    ("32", "A changed meeting date refreshes the recommendation", t32), ("33", "Brief views are not counted on rerenders", t33),
+    ("34", "Prospects get no invented usage or training", t34),
+]
+
+
 def run_workflow_checks() -> list[dict]:
     out = []
     for cid, name, fn in CASES:
@@ -262,10 +505,11 @@ def record_results(db: DB, results: list[dict], suite: str = "workflow"):
         db.insert("eval_results", suite=suite, name=f"{r['id']} {r['name']}", passed=int(r["passed"]), detail=r["detail"], ran_at=to_iso(datetime.now()))
 
 
-def save_rating(db: DB, interaction_id: str, scores: dict, note: str = ""):
-    if set(scores) != set(CRITERIA) or any(not 1 <= int(v) <= 5 for v in scores.values()):
+def save_rating(db: DB, subject_id: str, scores: dict, note: str = "", kind: str = "message"):
+    crit = CRITERIA if kind == "message" else {**CRITERIA, **REC_CRITERIA}
+    if set(scores) != set(crit) or any(not 1 <= int(v) <= 5 for v in scores.values()):
         raise ValueError("Provide a 1-5 score for every criterion.")
-    db.insert("ratings", interaction_id=interaction_id, note=note, ts=to_iso(db.now()), **{k: int(v) for k, v in scores.items()})
+    db.insert("ratings", interaction_id=subject_id, kind=kind, note=note, ts=to_iso(db.now()), **{k: int(v) for k, v in scores.items()})
 
 
 # --------------------------------------------------- optional live runner ---
