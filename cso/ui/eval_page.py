@@ -69,7 +69,7 @@ def _tab_session(db):
         ("Accepted / edited", f"{tm['accepted']} / {tm['edited']}", "Distinct recommendations accepted or edited (an edited one may also be accepted).", f"{tm['reviewed']} reviewed"),
         ("Dismissed / deferred", f"{tm['dismissed']} / {tm['deferred']}", "Distinct recommendations dismissed or deferred, each with a reason.", f"{tm['reviewed']} reviewed"),
         ("Marked discussed", tm["discussed"], "Recommendations the account team says were raised with the customer.", f"{tm['accepted'] + tm['edited']} accepted or edited"),
-        ("Learners enrolled / started / completed", f"{tm['enrolled']} / {tm['started']} / {tm['completed']}", "Sample customer learning updates, tracked separately from the Account Team's decision.", "Learners"),
+        ("Learners enrolled / started / completed", f"{tm['enrolled']} / {tm['started']} / {tm['completed']}", "Sample customer learning updates, tracked separately from the reviewer's decision.", "Learners"),
     ]
     st.dataframe(pd.DataFrame(ar, columns=["Measure", "Value", "Definition", "Denominator"]), hide_index=True, width="stretch")
     if not m["runs"] and not tm["briefs_generated"]:

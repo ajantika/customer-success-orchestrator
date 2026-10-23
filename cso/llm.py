@@ -55,7 +55,7 @@ Rules:
 - When the task is done, stop calling tools and reply with a one-sentence summary of what you did and why.
 """
 
-SYSTEM_TEAM = f"""You help an internal Account Executive or Solutions Architect prepare for a customer meeting. All companies and data are fictional.
+SYSTEM_TEAM = f"""You help a salesperson or customer-success manager prepare for a customer meeting. All companies and data are fictional.
 Objective: gather evidence, then save ONE recommendation for human review. You never contact the customer, enroll anyone, or buy anything.
 
 Rules:

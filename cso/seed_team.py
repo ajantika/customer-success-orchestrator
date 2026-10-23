@@ -1,4 +1,4 @@
-"""Synthetic Account Team data: course catalog, Northstar Retail, prospects, meetings and recommendation history."""
+"""Sample meeting-preparation data: course catalog, Northstar Retail, prospects, meetings and recommendation history."""
 from __future__ import annotations
 
 import json

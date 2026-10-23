@@ -443,7 +443,7 @@ def update_journey_status(ctx: ToolContext, a: StatusIn) -> StateOut:
     return StateOut(journey_id=a.journey_id, state=new, detail="State updated")
 
 
-# ------------------------------------------------------ Account Team tools ---
+# ------------------------------------------------------ meeting-preparation tools ---
 class MeetingIn(In):
     meeting_id: str
 

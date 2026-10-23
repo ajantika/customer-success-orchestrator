@@ -251,7 +251,7 @@ CASES = [
 ]
 
 
-# ------------------------------------------------- Account Team checks ---
+# ------------------------------------------------- meeting-preparation checks ---
 NS = T.NORTHSTAR
 MT = T.NS_MEETING
 
@@ -342,7 +342,7 @@ def t22(db):
     r2 = execute_tool(ctx, "get_meeting_context", {"account_id": NS, "meeting_id": other["mid"]})
     r3 = execute_tool(ctx, "save_recommendation", _save_args([], meeting_id=other["mid"], action_type="clarify", course_ids=[]))
     codes = [r1["error"]["code"], r2["error"]["code"], r3["error"]["code"]]
-    return codes == ["account_boundary"] * 3, f"cross-account Account Team calls -> {codes}"
+    return codes == ["account_boundary"] * 3, f"cross-account meeting-preparation calls -> {codes}"
 
 
 def t23(db):
@@ -476,7 +476,7 @@ CASES += [
     ("16", "Already-completed training is not recommended again", t16), ("17", "Unmet prerequisites lead to the prerequisite first", t17),
     ("18", "Missing or stale learner data leads to a clarification", t18), ("19", "A technical blocker leads to technical follow-up", t19),
     ("20", "Dismissed and deferred recommendations are respected", t20), ("21", "Repeated scans do not duplicate recommendations", t21),
-    ("22", "Account isolation holds for Account Team tools", t22), ("23", "Invalid course or evidence citations are rejected", t23),
+    ("22", "Account isolation holds for meeting-preparation tools", t22), ("23", "Invalid course or evidence citations are rejected", t23),
     ("24", "Accepting a recommendation does not create enrolment", t24), ("25", "Edits preserve the original recommendation", t25),
     ("26", "Meeting cancellation withdraws pending recommendations", t26), ("27", "Unsupported claims are excluded from recommendations", t27),
     ("28", "Paid options need a justification and free alternatives", t28), ("29", "Review actions and tool allow-lists are enforced", t29),

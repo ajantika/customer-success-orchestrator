@@ -1,6 +1,6 @@
 # Evaluation
 
-*Synthetic data only. This document reports checks that were actually run and says what was not.*
+*Sample data only. This document reports checks that were actually run and says what was not.*
 
 ## What is and is not evaluated
 | Layer | Status |
@@ -10,7 +10,7 @@
 | Optional model-backed adapter (hidden in the demo): tool loop, errors, step limit, account boundary | **Evaluated with a fake provider client** (4 tests, no network) |
 | Behaviour of a real language model | **Not evaluated and not demonstrated.** The demo is a simulation using prepared scenarios and rules |
 | Language quality of messages and recommendations | **Not evaluated.** The app records human 1-5 ratings; none are recorded in this repository |
-| Business impact: time saved, learning lift, revenue | **Not evaluable** on synthetic data and not claimed |
+| Business impact: time saved, learning lift, revenue | **Not evaluable** on sample data and not claimed |
 
 Workflow tests are not a language-quality evaluation and must not be cited as one.
 
@@ -41,7 +41,7 @@ Each workflow check builds a new seeded database, drives the real services and t
 | 19 | A technical blocker leads to technical follow-up | Pass | action=technical_followup; no training recommended while the blocker is open |
 | 20 | Dismissed and deferred recommendations are respected | Pass | dismissed: 'No recommendation saved: REC-007 was dismissed (Wrong timing); not rec'; recs stayed at 1/1; deferred: 'No recommendation saved: REC-008 was deferred (Wrong timing); leave it'; total recs=1 |
 | 21 | Repeated scans do not duplicate recommendations | Pass | first scan created 7 recommendation(s); repeating the scan left it at 7 |
-| 22 | Account isolation holds for Account Team tools | Pass | cross-account Account Team calls -> ['account_boundary', 'account_boundary', 'account_boundary'] |
+| 22 | Account isolation holds for meeting-preparation tools | Pass | cross-account meeting-preparation calls -> ['account_boundary', 'account_boundary', 'account_boundary'] |
 | 23 | Invalid course or evidence citations are rejected | Pass | unknown course -> invalid_input; evidence never gathered -> unsupported_evidence |
 | 24 | Accepting a recommendation does not create enrolment | Pass | status=accepted; learner records unchanged (10 rows); enrolment outcomes=0 |
 | 25 | Edits preserve the original recommendation | Pass | original text preserved in the recommendation and the feedback record; revised text stored separately |
@@ -63,13 +63,13 @@ Each workflow check builds a new seeded database, drives the real services and t
 
 The UI tests cover: every page renders; the selected customer and product survive an action and navigation between pages; Customer and Agent pages show the same customer; the Maple guided demo opens the right customer; the full guided journey by clicks (plain reruns send nothing, the handoff link opens the exact task, a resolution note is required, resolving does not complete onboarding, return-to-journey works); the queue does not default to another customer's task; the Evaluation view stays selected after running checks and shows the result; restarting one walkthrough keeps the other's progress; accepting after an edit is recorded explicitly and the review message follows the status; a typed completion claim without product events keeps the journey open; reviewer-only features are hidden by default; a failed handoff is reported honestly and can be retried; every walkthrough screen names the role you are playing; the Northstar guided flow (reruns create nothing, edit preserves the original, accepting creates no enrolment or outcome).
 
-## Account Team measures (definitions)
-Observed in session: eligible meetings (scheduled in the next 14 days), briefs generated, briefs viewed (one per reviewer per meeting; reruns are not counted), recommendations reviewed, accepted / edited / dismissed / deferred, marked discussed, and synthetic learner enrolment / start / completion counts. Each row on the Evaluation page states its denominator. Seeded history is shown separately and labelled synthetic.
+## Meeting-preparation measures (definitions)
+Observed in session: eligible meetings (scheduled in the next 14 days), briefs generated, briefs viewed (one per reviewer per meeting; reruns are not counted), recommendations reviewed, accepted / edited / dismissed / deferred, marked discussed, and sample learner enrolment / start / completion counts. Each row on the Evaluation page states its denominator. Seeded history is shown separately and labelled sample.
 
 ## Human scoring
 Message criteria (1-5): relevance, groundedness, correctness, instruction following, helpfulness, clarity. Recommendations add: timing, fit to role and goal, prerequisite compatibility, usefulness of the next action. Until a person records ratings the app shows "not evaluated".
 
-## Limits of synthetic demonstrations
+## Limits of sample demonstrations
 - Seeded customers follow scripts I wrote; passing checks show the rules do what they claim, not that they suit real customers.
 - Keyword reply screening, TF-IDF retrieval and token-overlap catalog search are shallow; real language is messier.
 - Seeded outcomes cannot show either workflow changes anything. A real pilot could compare briefed and unbriefed comparable meetings, time sample preparations, track field adoption and follow learning outcomes, with randomisation or a clear comparison group.

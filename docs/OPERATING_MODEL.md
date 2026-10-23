@@ -34,8 +34,8 @@
 ## Cadence
 Weekly operating review (handoff volume, tool errors, blocked-send reasons, opt-outs); monthly rating session on a sample of agent messages; quarterly threshold review.
 
-## Account Team workflow
-- **Account Executives and Solutions Architects** review, edit, accept, dismiss or defer recommendations and mark them discussed. They own what is said to the customer; nothing is sent automatically.
+## Meeting-preparation workflow
+- **Sales and customer-success staff** review, edit, accept, dismiss or defer recommendations and mark them discussed. They own what is said to the customer; nothing is sent automatically.
 - **Enablement** acts on repeated "customer already trained", "missing information" and content-gap feedback.
 - **Engineering** keeps tool contracts, evidence rules and allow-lists; changes to what counts as evidence go through the decision log.
 - **Analytics** defines brief and recommendation measures, runs the rating sessions (timing, role fit, prerequisite fit, usefulness) and designs any pilot comparison.

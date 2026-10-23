@@ -1,4 +1,4 @@
-# Demo: Northstar Retail (Account Team), about five minutes
+# Demo: Northstar Retail (meeting preparation), about five minutes
 
 Setup: `streamlit run app.py`. On Overview choose **Explore meeting preparation**. It resets the data and opens the meeting preparation page with the meeting already selected. The sidebar badge says **Demo mode** (prepared rules, no AI model).
 
@@ -13,6 +13,6 @@ Setup: `streamlit run app.py`. On Overview choose **Explore meeting preparation*
 | 3:30 | Click **Simulate customer enrollment** | Customer learning outcomes are tracked separately: accepting a recommendation never enrolled anyone |
 | 4:00 | Read the **Supporting detail** and **Evidence and sources** sections | Signals, training options with prerequisites, what is still unknown, and every source with its timestamp are kept out of the main view |
 | 4:40 | **Feedback summary** | Dismissal reasons, edits, accepted-but-undiscussed and repeated gaps, for roadmap decisions. The assistant does not learn from them automatically |
-| 5:00 | Evaluation → Observed in this session | Eligible meetings, briefs generated and viewed, reviews, decisions, discussed, learning updates, each with a denominator. Seeded history is labelled synthetic |
+| 5:00 | Evaluation → Observed in this session | Eligible meetings, briefs generated and viewed, reviews, decisions, discussed, learning updates, each with a denominator. Seeded history is labelled sample |
 
 Optional: **Scan upcoming meetings** prepares briefs for every meeting in the next 7 days; running it twice creates no duplicates.

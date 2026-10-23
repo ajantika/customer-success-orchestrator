@@ -1,4 +1,4 @@
-"""Account Team workflow services: meeting preparation, review, scenarios and measurement.
+"""Meeting-preparation workflow services: meeting preparation, review, scenarios and measurement.
 
 Like services.py, these run only from button callbacks. Rendering never calls them.
 """
@@ -110,7 +110,7 @@ def reschedule_meeting(db: DB, meeting_id: str, days: int) -> int:
 
 
 def simulate_learning(db: DB, rec_id: str, stage: str, count: int = 2) -> int:
-    """Synthetic customer learning update. Kept separate from the Account Team's accept/dismiss decision."""
+    """Sample customer learning update. Kept separate from the reviewer's accept/dismiss decision."""
     r = db.one("SELECT * FROM recommendations WHERE id=?", (rec_id,))
     courses = json.loads(r["courses"])
     if not courses or stage not in ("enrolled", "started", "completed"):

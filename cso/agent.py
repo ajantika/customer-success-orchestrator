@@ -128,7 +128,7 @@ class ScriptedDecider:
             return (yield from self._progress_check())
         return (yield from self._proactive())
 
-    # ---- Account Team: meeting preparation ----------------------------------------
+    # ---- Meeting preparation ----------------------------------------
     def _save(self, mid, action, title, why, talking, brief, refs, **extra):
         args = {"account_id": self.aid, "meeting_id": mid, "action_type": action, "title": title, "why_now": why, "talking_point": talking,
                 "brief": brief, "evidence_refs": refs, **extra}
