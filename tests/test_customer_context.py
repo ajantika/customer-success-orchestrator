@@ -222,3 +222,19 @@ def test_handoff_screen_has_exactly_one_open_task_button():
     _btn(at, "Exit walkthrough").click().run()                           # outside the walkthrough there is still just one
     opens = [b.label for b in at.button if "support task" in b.label.lower() and b.label.startswith("Open")]
     assert opens == [f"Open Maple's support task · {tid}"], opens
+
+
+def test_customer_without_products_shows_a_clear_message_not_blank_sections():
+    at = _at("customer")
+    db = at.session_state["db"]
+    prospect = db.one("SELECT id, name FROM accounts WHERE lifecycle='prospect' LIMIT 1")
+    at.selectbox(key="w_acct").select(prospect["id"]).run()
+    page = _text(at)
+    assert f"{prospect['name']} is still evaluating the product and has not bought anything yet" in page
+    assert not at.dataframe or all(len(d.value) > 0 for d in at.dataframe)       # no empty table
+    assert "Upcoming meetings" in page and not at.exception
+    assert not any(b.label == "Check this customer's setup" for b in at.button)    # nothing to check for a prospect, so no dead-end button
+    # and a customer with products shows rollout and progress inside one card per product
+    at.selectbox(key="w_acct").select("ACC-001").run()
+    page = _text(at)
+    assert "Rollout started" in page and "Rollout planned for" in page and "setup steps done" in page
