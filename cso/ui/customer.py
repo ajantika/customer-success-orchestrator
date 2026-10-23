@@ -40,33 +40,30 @@ def render():
 
     subs = db.q("SELECT product FROM subscriptions WHERE account_id=? ORDER BY product", (aid,))
     plans = {r["product"]: r["planned_start"] for r in db.q("SELECT * FROM rollout_plans WHERE account_id=?", (aid,))}
-    st.markdown("**Purchased products and rollout plan**")
-    rows = []
-    for s in subs:
-        p = s["product"]
-        start = plans.get(p)
-        rows.append({"Product": PRODUCT_LABEL[p], "Planned rollout": when(start, False) if start else "Not on file",
-                     "Rollout status": "No plan" if not start else ("Started" if from_iso(start) <= now else f"Planned in {(from_iso(start) - now).days} days")})
-    st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
-
-    st.markdown("### Onboarding milestones and journey status")
+    st.markdown("### Products and setup progress")
+    if not subs:
+        st.info(f"{acc['name']} is still evaluating the product and has not bought anything yet, so there is no rollout plan, setup progress or usage to show. "
+                "No sample usage has been invented for this example.")
     for s in subs:
         p = s["product"]
         pr = rules.progress(db, aid, p)
         j = db.one("SELECT * FROM journeys WHERE account_id=? AND product=?", (aid, p))
+        start = plans.get(p)
+        rollout = "No rollout date on file" if not start else (f"Rollout started {when(start, False)}" if from_iso(start) <= now else f"Rollout planned for {when(start, False)} (in {(from_iso(start) - now).days} days)")
         usage = db.one("SELECT COUNT(*) n FROM product_events WHERE account_id=? AND product=? AND event_type='usage_session' AND ts>=?",
                        (aid, p, (now.replace(hour=0) - pd.Timedelta(days=14)).strftime("%Y-%m-%dT%H:%M:%S")))["n"]
         with st.container(border=True):
             h1, h2 = st.columns([3, 2])
             h1.markdown(f"**{PRODUCT_LABEL[p]}** &nbsp; {style.badge(j['state'])}", unsafe_allow_html=True)
-            h2.caption(f"{pr['done_count']} of {pr['total']} milestones · {usage} usage sessions in the last 14 days (sample data)")
+            h2.caption(f"{rollout}")
+            st.caption(f"{pr['done_count']} of {pr['total']} setup steps done · {usage} usage sessions in the last 14 days (sample data)")
             st.progress(pr["done_count"] / pr["total"] if pr["total"] else 0)
             st.markdown("  \n".join(f"{'✅' if m['done'] else '⬜'} {m['customer_label']}" + (f" _({when(m['done_at'], False)})_" if m["done"] else "") for m in pr["milestones"]))
             el = rules.evaluate_outreach(db, j["id"])
-            verdict = "Eligible for outreach" if el.allowed else "Not eligible for outreach"
-            with st.expander(f"{verdict} — why?", expanded=(p == st.session_state.get("sel_prod"))):
-                st.markdown("\n".join(f"- {'✅' if c.passed else '❌'} **{c.code.replace('_', ' ')}**: {c.message}" for c in el.checks))
-                st.caption("Rules are evaluated in code before any message is sent. Thresholds are demo policy and configurable.")
+            verdict = "The assistant may contact this customer" if el.allowed else "The assistant should not contact this customer yet"
+            with st.expander(f"{verdict}: why?", expanded=(p == st.session_state.get("prod"))):
+                st.markdown("\n".join(f"- {'✅' if c.passed else '❌'} {c.message}" for c in el.checks))
+                st.caption("These rules are checked in code before any message is sent. The thresholds are demo values.")
 
     st.markdown("### Open support issues")
     cases = db.q("SELECT id, product, subject, category, created_at FROM support_cases WHERE account_id=? AND status='open'", (aid,))
@@ -110,8 +107,11 @@ def render():
     keep = st.multiselect("Show activity from", list(LABELS), default=list(LABELS), format_func=LABELS.get, key="tl_filter")
     items = db.q("SELECT * FROM interactions WHERE account_id=? ORDER BY rid DESC LIMIT 200", (aid,))
     if not items:
-        st.info(f"No activity yet for {acc['name']}. Check their setup to begin.")
-        st.button("Check this customer's setup", on_click=_open_setup, args=(aid,), key="tl_setup", type="primary")
+        if subs:
+            st.info(f"No activity yet for {acc['name']}. Check their setup to begin.")
+            st.button("Check this customer's setup", on_click=_open_setup, args=(aid,), key="tl_setup", type="primary")
+        else:
+            st.info(f"No activity yet for {acc['name']}. There is no setup to check because they have not bought anything; use the upcoming meeting above to prepare.")
         return
     shown = [i for i in items if i["actor"] in keep]
     if not shown:

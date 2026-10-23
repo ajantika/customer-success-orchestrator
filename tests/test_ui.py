@@ -29,6 +29,10 @@ def _btn(at, label):
     return next(b for b in at.button if b.label == label)
 
 
+def _btn_starting(at, prefix):
+    return next(b for b in at.button if b.label.startswith(prefix))
+
+
 def _has(at, label):
     return any(b.label == label for b in at.button)
 
@@ -94,7 +98,7 @@ def test_guided_journey_via_clicks_no_duplicates_and_handoff_opens_exact_task():
     assert db.one("SELECT COUNT(*) n FROM human_tasks WHERE origin='session'")["n"] == 1
     tid = db.one("SELECT id FROM human_tasks WHERE origin='session'")["id"]
     assert db.one("SELECT state FROM journeys WHERE account_id=? AND product='docs'", (FEATURED,))["state"] == "waiting_for_human"
-    _btn(at, "Open the support task").click().run()  # lands on the queue with Maple's task selected, not another customer's
+    _btn_starting(at, "Open Maple's support task").click().run()  # lands on the queue with Maple's task selected, not another customer's
     assert at.session_state["task"] == tid and at.session_state["acct"] == FEATURED
     assert any("Customer: Maple Design" in m.value for m in at.markdown)
     _btn(at, "Save note and mark resolved").click().run()   # an empty note is refused, with a visible message
@@ -122,7 +126,7 @@ def test_queue_follows_the_selected_customer_not_the_first_task():
         _btn(at, text).click().run()
     tid = db.one("SELECT id FROM human_tasks WHERE origin='session'")["id"]
     other = db.one("SELECT id FROM human_tasks WHERE origin='seed' AND status!='resolved' ORDER BY priority LIMIT 1")["id"]
-    _btn(at, f"Open support task {tid}").click().run()
+    _btn_starting(at, "Open Maple's support task").click().run()
     assert at.session_state["task"] == tid != other
     # entering the queue from the sidebar shows the selected customer's task, never another customer's
     _goto(at, "customer"); _goto(at, "queue")
