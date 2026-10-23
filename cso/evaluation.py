@@ -487,6 +487,22 @@ CASES += [
 ]
 
 
+def t35(db):
+    aid, jid = _maple_docs(db)
+    S.run_onboarding_check(db, aid, jid)
+    pending = lambda: db.one("SELECT COUNT(*) n FROM scheduled_actions WHERE journey_id=? AND status='pending' AND action_type='setup_reminder'", (jid,))["n"]
+    S.handle_customer_message(db, aid, jid, "email", "Setup is now complete.")  # a claim with no matching product events
+    state1, msg, p1 = _state(db, jid), _agent_msgs(db, aid)[-1]["body"], pending()
+    S.simulate_setup_complete(db, aid, "docs")
+    S.handle_customer_message(db, aid, jid, "email", "Setup is now complete.")
+    state2, p2 = _state(db, jid), pending()
+    ok = state1 != "completed" and "don't see" in msg and p1 >= 1 and state2 == "completed" and p2 == 0
+    return ok, f"claim without events -> journey stays '{state1}' (assistant says it does not see the steps; reminders pending={p1}); claim after events exist -> '{state2}' (reminders pending={p2})"
+
+
+CASES += [("35", "A completion claim without matching product events keeps the journey open", t35)]
+
+
 def run_workflow_checks() -> list[dict]:
     out = []
     for cid, name, fn in CASES:

@@ -153,11 +153,12 @@ class ScriptedDecider:
         when_txt = when(meet["starts_at"], False)
         short = acc["name"].split()[0]
         goal = (acc["goal"] or "").rstrip(".")
+        you = f"You mentioned wanting to {goal[:1].lower() + goal[1:]}." if goal else "You mentioned your goals for the product."
         roles = ", ".join(meet["attendee_roles"])
         if acc["lifecycle"] == "prospect" or not prods:
             r = yield self._save(mid, "discovery", "Confirm goals and success criteria; no product data exists yet",
                                  f"{acc['name']} is evaluating the product and has no usage or learning history, so there is nothing to base a training recommendation on.",
-                                 f"Ask what a successful evaluation looks like and who would use the product. Goal on record: {goal}.",
+                                 f"{you} What would a successful evaluation look like for you, and who would use it first?",
                                  f"Meeting {when_txt} ({meet['purpose']}). Attendees: {roles}. Lifecycle: prospect/evaluation. No usage or learner data is available and none has been assumed.",
                                  base_refs, unknowns=["Success criteria for the evaluation", "Who would adopt the product first", "Whether any teams already use similar tools"])
             return Finish(self._saved_summary(r))
@@ -178,7 +179,7 @@ class ScriptedDecider:
             case = (B["open_cases"] or B["open_tasks"])[0]
             r = yield self._save(mid, "technical_followup", "Follow up on the open technical issue before discussing training",
                                  f"There is an open technical item ({case.get('subject') or case.get('issue')}). Training would not remove the immediate blocker.",
-                                 "Acknowledge the open issue, share its current status and agree next steps before talking about learning.",
+                                 f"Before we talk about training, I'd like to make sure this is sorted: {(case.get('subject') or case.get('issue') or 'the open issue')[:1].lower() + (case.get('subject') or case.get('issue') or 'the open issue')[1:]}. Where does that stand for your team today, and what would help most from us?",
                                  brief_head + f" Open item: {case.get('subject') or case.get('issue')}.", refs,
                                  unknowns=["Current status of the technical issue", "Whether the issue is what slowed adoption"])
             return Finish(self._saved_summary(r))
@@ -187,20 +188,20 @@ class ScriptedDecider:
             plan = next(x["planned_start"] for x in B["rollouts"] if x["product"] == prod)
             r = yield self._save(mid, "timing", "Hold the training discussion until the rollout starts",
                                  f"The {prod} rollout is planned for {when(plan, False)} and has not started, so adoption data is not yet meaningful.",
-                                 f"Confirm the rollout date and ask what the team will need in the first weeks. Revisit training after {when(plan, False)}.",
+                                 f"I know your rollout is planned for {when(plan, False)}. What would help your teams most in the first few weeks? We can talk about training once you're underway.",
                                  brief_head + f" Rollout planned for {when(plan, False)}.", refs, unknowns=["Whether the rollout date is firm", "Who will lead the rollout"])
             return Finish(self._saved_summary(r))
         if not L["has_records"]:
             r = yield self._save(mid, "clarify", "Ask who has already been trained",
                                  "There are no learner records for this account, so a training need cannot be assessed.",
-                                 "Ask which employees have completed any Docs training and what they are trying to do with the workflow.",
+                                 f"{you} To make sure we point you to the right resources, who on your team has already taken any Docs training, and what are they trying to do with it?",
                                  brief_head + " No learner records are on file; nothing has been assumed about training.", refs,
                                  unknowns=["Which employees have completed training", "Whether the team needs help applying the workflow"])
             return Finish(self._saved_summary(r))
         if L["stale"]:
             r = yield self._save(mid, "clarify", "Confirm current learner status",
                                  f"Learner records were last updated {when(L['records_updated_at'], False)}, which is older than the freshness limit.",
-                                 "Ask the customer to confirm who has completed which modules before suggesting more training.",
+                                 "I want to make sure we don't suggest anything your team has already done. Could you confirm who has completed which Docs training so far?",
                                  brief_head + f" Learner records last updated {when(L['records_updated_at'], False)}.", refs, unknowns=["Current training completion"])
             return Finish(self._saved_summary(r))
 
@@ -228,8 +229,8 @@ class ScriptedDecider:
         if workshop and n >= 15 and nxt >= 10:
             r = yield self._save(mid, "training", f"Discuss a facilitated rollout workshop: {workshop['title']}",
                                  f"{n} learners are on record and {nxt} have already completed the self-paced module, so a facilitated session may add more than another course. {adoption}",
-                                 f"{short} wants to {goal[:1].lower() + goal[1:]}. {learn_txt} {adoption} Ask whether a working session with team leads would help. "
-                                 f"If a gap is confirmed, discuss {workshop['title']} (paid workshop) and note that the free self-paced module covers individuals.",
+                                 f"{you} How are your teams finding it day to day? Several of you have already finished the self-paced module, so if a facilitated session would help, "
+                                 f"we run a {workshop['duration_min'] // 60}-hour workshop on rolling it out across teams. Happy to share details; the free module stays available either way.",
                                  brief_head + f" Learning: {learn_txt}", refs, course_ids=["CRS-104"], learner_summary=f"{n} learners; {nxt} completed {target['title']}",
                                  unknowns=base_unknown + ["Budget and appetite for a paid workshop"],
                                  free_alternatives_considered="The free self-paced module CRS-102 was considered; most of the team has already completed it, so a facilitated session is the next useful step.")
@@ -239,7 +240,7 @@ class ScriptedDecider:
         if not need:
             r = yield self._save(mid, "discovery", f"Training is already complete; explore other barriers",
                                  f"Everyone on record has completed {target['title']}, so recommending it again is not supported. {adoption}",
-                                 f"{learn_txt} Ask what is stopping the team applying the workflow: ownership, priorities, templates or tooling.",
+                                 f"{you} Your team has finished the training we offer for this, so I'd like to understand what is getting in the way day to day: ownership, priorities, templates, or something else?",
                                  brief_head + f" Learning: everyone on record completed {target['title']}.", refs,
                                  unknowns=base_unknown + ["What else is blocking adoption"])
             return Finish(self._saved_summary(r))
@@ -247,15 +248,15 @@ class ScriptedDecider:
         if not ready and pre is not None:
             r = yield self._save(mid, "training", f"Start with the prerequisite: {pre['title']}",
                                  f"No learner has met the prerequisite for {target['title']}. {learn_txt}",
-                                 f"Ask whether the team has done the basics. If not, suggest {pre['title']} first (free, {pre['duration_min']} minutes).",
+                                 f"{you} Has everyone had a chance to go through the basics yet? If not, there's a {pre['duration_min']}-minute {pre['format']}, {pre['title']}, that we can send over. It's free.",
                                  brief_head + f" Learning: {learn_txt}", refs, course_ids=[pre["id"]], learner_summary=f"{len(need)} learners have not completed {pre['title']}",
                                  unknowns=base_unknown)
             return Finish(self._saved_summary(r))
         roles_ready = sorted({l["role"] for l in ready})
         r = yield self._save(mid, "training", f"Ask whether the team needs help applying the workflow; if confirmed, discuss {target['title']}",
                              f"The meeting is a good moment to check adoption: {learn_txt} {adoption} {usage[0].upper() + usage[1:]}. This is a prompt for a conversation, not proof of a skills gap.",
-                             f"{short} wants to {goal[:1].lower() + goal[1:]}. {learn_txt} {adoption} Ask whether the team needs help applying the workflow. "
-                             f"If a skills gap is confirmed, discuss {target['title']} ({target['price_note'].lower()}, {target['duration_min']} minutes).",
+                             f"{you} How comfortable are your teams using it day to day? If practical training would help, there's a {target['duration_min']}-minute {target['format']}, "
+                             f"{target['title']}, that we could go through together." + (" It's free." if not target["paid"] else ""),
                              brief_head + f" Learning: {learn_txt}", refs, course_ids=[target["id"]],
                              learner_summary=f"{len(ready)} learner(s) ready for {target['title']} ({', '.join(roles_ready)})" + (f"; {len(need) - len(ready)} still need a prerequisite" if len(need) > len(ready) else ""),
                              unknowns=base_unknown + (["Whether remaining learners have time for the module"] if ready else []))

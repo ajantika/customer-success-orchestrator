@@ -17,33 +17,18 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-No API key is needed. The app starts in **Demo mode**. On the Overview page choose **Start customer onboarding** or **Start meeting preparation**. Each opens a short guided checklist. The app guides you; written walkthroughs: [Maple Design](docs/DEMO_SCRIPT_MAPLE.md) and [Northstar Retail](docs/DEMO_SCRIPT_NORTHSTAR.md).
+No API key is needed. On the Overview page choose **Start customer onboarding** or **Start meeting preparation**. Each opens a short guided checklist. The app guides you; written walkthroughs: [Maple Design](docs/DEMO_SCRIPT_MAPLE.md) and [Northstar Retail](docs/DEMO_SCRIPT_NORTHSTAR.md).
 
 ```bash
 pytest                       # workflow checks, tool/rule tests, UI click-through tests, live-adapter tests with a fake client
-python -m cso.evaluation     # the 34 workflow checks with per-check evidence
+python -m cso.evaluation     # the 35 workflow checks with per-check evidence
 ```
 
-## Demo mode and Live AI
+## What this is (and is not)
 
-| | Demo mode (default) | Live AI |
-|---|---|---|
-| Decisions | Prepared scenarios and deterministic rules in `cso/agent.py`. **No AI model is called.** | A model chooses tools and writes messages and talking points (`cso/llm.py`, Anthropic Messages API) |
-| Tools, rules, state, review steps | Identical | Identical |
-| Needs a key | No | Yes |
-| On failure | n/a | Shows the error and keeps your session. Never falls back silently to prepared output |
+This is a **simulation of an agent workflow** built with prepared scenarios and deterministic rules. **No AI model is called.** The tools, rules, review steps and data changes are real inside the session, so it demonstrates product and workflow design: when to act, when not to, what a human must approve, and how decisions are recorded. It does not demonstrate the behaviour of a language model.
 
-An always-visible badge in the sidebar shows the current mode. To try an AI model open **Try with an AI model** in the sidebar and tick the box. Provide a key by any one of:
-
-- `export ANTHROPIC_API_KEY=...` before `streamlit run app.py`
-- `.streamlit/secrets.toml` with `ANTHROPIC_API_KEY = "..."` (see `.streamlit/secrets.toml.example`; the real file is git-ignored)
-- paste a key into the sidebar box (kept in that browser session's memory only)
-
-Optional: `CSO_MODEL` or the sidebar "Model" box overrides the default model (`claude-sonnet-5-5`). Keys are never displayed, logged or written to the database.
-
-The model performs two jobs: it picks which permitted tool to call next and writes the customer message (onboarding) or the brief and talking points (Account Team). Validation, account boundaries, tool allow-lists, citation checks and review requirements run in code either way.
-
-> The live path is covered by tests that use a fake provider client. It has **not** been run against a real model in this repository, so real-model behaviour is unvalidated.
+An optional model-backed adapter (`cso/llm.py`, Anthropic Messages API) exists in the code with tests that use a fake client. It is hidden in the demo and has never been run against a real model here. To expose it for local experiments, set `CSO_ADVANCED=1` (this also shows reviewer-only options: situation scenarios, the demo clock, handoff-failure switch and the configuration page) and provide `ANTHROPIC_API_KEY`.
 
 ## Pages
 
@@ -54,7 +39,6 @@ The model performs two jobs: it picks which permitted tool to call next and writ
 | Customer onboarding | Guided walkthrough with Maple Design: inbox, customer replies, a plain-language "What just happened" card after every action, technical details in an expander |
 | Support tasks | You act as the support specialist: assign, update and resolve handoffs with a required note; opens on the exact task you came from |
 | **Meeting preparation** (Account Team Assistant) | Simulated upcoming meetings, meeting brief, recommendation card with evidence, accept / edit / dismiss / defer / mark discussed, learning outcomes tracked separately, scenario controls, feedback summary |
-| Journey configuration | Eligibility, thresholds, frequency, stopping and escalation rules, team ownership, milestone definitions |
 | Evaluation | Observed session activity, seeded synthetic history, and system evaluation (workflow checks, human ratings), with definitions and denominators |
 
 ## Project structure
@@ -94,7 +78,8 @@ docs/                   Brief, architecture, decisions, operating model, evaluat
 - Seeded metrics are synthetic and imply nothing about real improvement. Time saved, learning lift and revenue are not measured.
 - Only onboarding, adoption and learning are in scope. The agent cannot change billing, plans or permissions.
 - The Account Team assistant's feedback summary informs roadmap decisions; the assistant does not learn from feedback automatically.
-- Live AI mode is untested against a real model (see above).
+- The optional model-backed adapter is hidden by default and untested against a real model.
+- The interface is designed for a laptop or desktop screen; narrow screens were not a goal for this version.
 
 ## Self-service use
 

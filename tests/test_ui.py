@@ -40,7 +40,8 @@ def _goto(at, page):
 
 
 @pytest.mark.parametrize("page", ["overview", "customer", "agent", "queue", "team", "config", "eval"])
-def test_pages_render_without_exceptions(page):
+def test_pages_render_without_exceptions(page, monkeypatch):
+    monkeypatch.setenv("CSO_ADVANCED", "1")
     at = _at(page)
     assert not at.exception, [e.value for e in at.exception]
 
@@ -93,9 +94,11 @@ def test_guided_journey_via_clicks_no_duplicates_and_handoff_opens_exact_task():
     _btn(at, "Open the support task").click().run()  # lands on the queue with Maple's task selected, not another customer's
     assert at.session_state["task"] == tid and at.selectbox(key="w_task").value == tid
     assert any("Maple Design" in m.value for m in at.markdown)
-    assert _btn(at, "Resolve task").disabled
-    next(t for t in at.text_area if t.label.startswith("Resolution note")).set_value("Re-issued the directory token and verified sync.").run()
-    _btn(at, "Resolve task").click().run()
+    _btn(at, "Save note and resolve").click().run()   # an empty note is refused, with a visible message
+    assert db.one("SELECT status FROM human_tasks WHERE id=?", (tid,))["status"] != "resolved"
+    assert any("resolution note" in w.value.lower() for w in at.warning)
+    next(t for t in at.text_area if t.label.startswith("Resolution note")).set_value("Re-issued the directory token and verified sync.")
+    _btn(at, "Save note and resolve").click().run()   # one click saves the note and resolves
     assert db.one("SELECT COUNT(*) n FROM agent_runs WHERE trigger='progress_check'")["n"] == 1
     assert db.one("SELECT state FROM journeys WHERE account_id=? AND product='docs'", (FEATURED,))["state"] != "completed"
     _btn(at, "Return to this customer's journey").click().run()
@@ -156,22 +159,54 @@ def test_account_team_guided_flow_and_accept_does_not_enrol():
     _btn(at, "Prepare the brief").click().run()
     rec = db.one("SELECT * FROM recommendations WHERE meeting_id='MTG-001'")
     assert rec["status"] == "generated" and rec["generation_mode"] == "demo"
+    assert any("Review required" in c.value for c in at.caption)           # message matches the status
+    assert rec["talking_point"].startswith("You mentioned wanting to") and "Ask whether" not in rec["talking_point"]
     at.run(); at.run()
     assert db.one("SELECT COUNT(*) n FROM recommendations WHERE meeting_id='MTG-001'")["n"] == 1  # reruns create nothing
     _btn(at, "Mark as reviewed").click().run()
-    _btn(at, "Edit and accept").click().run()
+    _btn(at, "Apply example edit and accept").click().run()
     now = db.one("SELECT * FROM recommendations WHERE meeting_id='MTG-001'")
-    assert now["status"] == "edited" and now["content_original"] != now["content_current"]
+    assert now["status"] == "accepted" and now["content_original"] != now["content_current"]
+    actions = [r["action"] for r in db.q("SELECT action FROM rec_feedback WHERE meeting_id='MTG-001' ORDER BY id")]
+    assert actions == ["reviewed", "edited", "accepted"], actions            # acceptance is recorded explicitly
+    assert any("Accepted with edits" in m.value for m in at.markdown)
     assert db.one("SELECT COUNT(*) n FROM learner_records WHERE account_id='ACC-041'")["n"] == enrol0
     assert db.one("SELECT COUNT(*) n FROM learning_outcomes WHERE origin='session'")["n"] == 0
     _btn(at, "Mark as discussed").click().run()
+    assert any(c.value.startswith("Discussed.") for c in at.caption)        # "Review required" no longer shown
+    assert not any("Review required" in c.value for c in at.caption)
     _btn(at, "Simulate enrolment").click().run()
     assert db.one("SELECT status FROM recommendations WHERE meeting_id='MTG-001'")["status"] == "discussed"
     assert db.one("SELECT COUNT(*) n FROM learning_outcomes WHERE origin='session'")["n"] == 1
     assert not at.exception, [e.value for e in at.exception]
 
 
-def test_failed_handoff_is_reported_honestly_and_can_be_retried():
+def test_typed_completion_claim_without_events_keeps_journey_open():
+    at = _at("overview")
+    _btn(at, "Start customer onboarding").click().run()
+    db = at.session_state["db"]
+    _btn(at, "Run the check").click().run()
+    at.text_area(key="reply_text").set_value("Setup is now complete.").run()
+    _btn(at, "Send as the customer").click().run()
+    state = db.one("SELECT state FROM journeys WHERE account_id=? AND product='docs'", (FEATURED,))["state"]
+    assert state != "completed" and db.one("SELECT COUNT(*) n FROM product_events WHERE account_id=? AND origin='session' AND event_type!='usage_session'", (FEATURED,))["n"] == 0
+    last = db.one("SELECT body FROM interactions WHERE actor='agent' AND kind='message' AND account_id=? ORDER BY rid DESC LIMIT 1", (FEATURED,))["body"]
+    assert "don't see" in last
+
+
+def test_default_view_hides_reviewer_only_features(monkeypatch):
+    monkeypatch.delenv("CSO_ADVANCED", raising=False)
+    at = AppTest.from_file("app.py", default_timeout=60)
+    at.run()
+    assert not at.exception
+    assert not any("AI model" in e.label for e in at.sidebar.expander)
+    assert not any(b.label.startswith("+") for b in at.sidebar.button)
+    team = _at("team")
+    assert not any(b.label == "Apply situation" for b in team.button)
+
+
+def test_failed_handoff_is_reported_honestly_and_can_be_retried(monkeypatch):
+    monkeypatch.setenv("CSO_ADVANCED", "1")
     at = _at("overview")
     _btn(at, "Start customer onboarding").click().run()
     db = at.session_state["db"]

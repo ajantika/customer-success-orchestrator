@@ -26,3 +26,10 @@ def when(iso: str | datetime | None, with_time: bool = True) -> str:
     hour = dt.strftime("%I").lstrip("0") or "12"
     mins = f":{dt:%M}" if dt.minute else ""
     return f"{day} at {hour}{mins} {dt:%p}"
+
+
+def rec_status(rec: dict) -> str:
+    """Status shown to people. An accepted recommendation whose wording was edited reads 'Accepted with edits'."""
+    if rec["status"] == "accepted" and rec["content_current"] != rec["content_original"]:
+        return "Accepted with edits"
+    return status(rec["status"])

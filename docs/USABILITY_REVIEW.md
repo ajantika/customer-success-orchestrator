@@ -16,13 +16,21 @@
 |---|---|---|
 | Customer onboarding, start to finish, laptop width (1280 px) | In the browser by clicking only the highlighted buttons, typing the resolution note, and following the on-screen next steps | Completed; summary shown; Docs journey completed from product events |
 | Meeting preparation, start to finish, laptop width | Same, in the browser | Completed; recommendation discussed; learning outcome shown as synthetic |
-| Narrow screen (390 px) | Browser screenshots of the Overview and the Meeting preparation page | Text readable, buttons full width, no horizontal scrolling seen on those screens |
 | Both workflows via automated clicks | `tests/test_ui.py` (17 tests) | Pass: selection survives actions and navigation, handoff link opens the exact task, restart resets only one customer, failed handoff reported honestly and retried, role labels present |
 | Rules and tools | `tests/test_workflows.py` (40 tests) and `python -m cso.evaluation` | 34 of 34 workflow checks pass |
 
 ## Limits
 - Tested by the developer, not an independent visitor. A real first-time-user test could still find confusing wording.
-- Browser checks covered the Overview, Customer onboarding, Support tasks and Meeting preparation pages. I did not click through every page of the app on a narrow screen (Customer workspace, Journey configuration and Evaluation were only checked on laptop width through automated tests and text review).
+- The interface targets laptop and desktop screens. Narrow screens were glanced at once but are not a goal for this version.
 - Refreshing the browser tab starts a new demo (the guide says so).
 - Live AI mode was not exercised against a real model.
 - No screen-reader or colour-contrast audit was done.
+
+## Changes after the first review round
+- "Edit and accept" now records the edit and the acceptance as separate history entries, and the status reads "Accepted with edits".
+- The review message follows the recommendation's status (Review required, Accepted, Discussed, Dismissed, Withdrawn).
+- Talking points are written as something a salesperson would say to the customer; the usage and learning analysis stays in the internal brief.
+- The meeting page's main view holds the goal, why attention is needed, the recommended action, the talking point and the review buttons. Signals, training options, unknowns, evidence and history are in expanders.
+- Simulated completion is described precisely: the demo button creates sample product events. A typed completion claim without events keeps the journey open (workflow check 35 and a UI test).
+- Resolving a support task is one form with "Save note and resolve".
+- Scope for this version: the model-backed option, situation scenarios, the demo clock, handoff-failure switch and the configuration page are hidden unless `CSO_ADVANCED=1`.

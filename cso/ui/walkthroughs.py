@@ -7,7 +7,7 @@ import streamlit as st
 
 from .. import session, team
 from ..db import DB
-from ..format import status, when
+from ..format import rec_status, status, when
 from ..models import STATE_LABEL
 from ..restart import WORKFLOWS, restart_workflow
 from . import style
@@ -118,7 +118,7 @@ def summary_onboarding(db: DB):
             acts.append(f"When the steps did not work it created support task {task['id']} for {task['team']} and paused setup reminders."
                         + (f" The support specialist resolved it: “{task['resolution_note'].rstrip('.')}”." if task["status"] == "resolved" else ""))
         if events:
-            acts.append("Product events arrived for: " + ", ".join(e["event_type"].replace("_", " ") for e in events) + ". The assistant checked them before closing the journey.")
+            acts.append("Sample product events (created by the demo button) arrived for: " + ", ".join(e["event_type"].replace("_", " ") for e in events) + ". The assistant checked them before closing the journey.")
         if cancelled:
             acts.append(f"{cancelled} pending reminder(s) were cancelled.")
         st.markdown("**Actions taken**\n" + "\n".join(f"- {a}" for a in acts))
@@ -137,9 +137,10 @@ def summary_team(db: DB):
         st.markdown("**The problem.** Northstar wants a shared documentation workflow across several teams. Activity has dropped and only two of six intro-trained staff finished the next module.")
         if rec:
             acts = [f"The assistant gathered the meeting, usage, learning, blocker and catalog evidence and saved recommendation {rec['id']}: “{rec['title']}”."]
-            acts += [f"{h['reviewer']} marked it **{status(h['action']).lower()}**" + (f" ({h['reason']})" if h["reason"] else "") + "." for h in hist]
+            edited = rec["content_current"] != rec["content_original"]
+            acts += [f"{h['reviewer']} marked it **{status(h['action']).lower()}**" + (" (with edits)" if h["action"] == "accepted" and edited else "") + (f" ({h['reason']})" if h["reason"] else "") + "." for h in hist]
             st.markdown("**Actions taken**\n" + "\n".join(f"- {a}" for a in acts))
-            st.markdown(f"**Resulting state.** Recommendation: **{status(rec['status'])}**. Nothing was sent to the customer and no one was enrolled by the decision.")
+            st.markdown(f"**Resulting state.** Recommendation: **{rec_status(rec)}**. Nothing was sent to the customer and no one was enrolled by the decision.")
             got = {r["stage"]: r["n"] for r in lo}
             st.markdown(f"**Customer learning (tracked separately, synthetic).** Enrolled: {got.get('enrolled', 0)}, started: {got.get('started', 0)}, completed: {got.get('completed', 0)}. "
                         "Whether the conversation or training improves adoption is not known from this demonstration.")

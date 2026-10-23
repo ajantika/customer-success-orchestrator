@@ -98,7 +98,7 @@ def mode_label() -> str:
 
 
 def mode_hint() -> str:
-    return "An AI model chooses tools and writes messages; rules still run in code." if mode() == "live" else "Uses prepared scenarios and rules. No AI model is called."
+    return "An AI model chooses tools and writes messages; rules still run in code." if mode() == "live" else "A simulation of an agent workflow using prepared scenarios and rules. No AI model is called."
 
 
 def record_action(did: str, found: list[str] | None = None, why: str = "", tone: str = "success", run_id: str | None = None):
@@ -106,20 +106,27 @@ def record_action(did: str, found: list[str] | None = None, why: str = "", tone:
     st.session_state["last_action"] = {"found": found or [], "did": did, "why": why, "tone": tone, "run_id": run_id}
 
 
-def show_action(next_text: str | None = None):
+def show_action(next_text: str | None = None, compact: bool = False):
     a = st.session_state.get("last_action")
     if not a:
         return
     with st.container(border=True):
         icon = {"success": "✅", "warning": "⚠️", "error": "⛔", "info": "ℹ️"}.get(a["tone"], "✅")
-        st.markdown(f"**{icon} What just happened**")
-        if a["found"]:
-            st.markdown("**What the system found**\n" + "\n".join(f"- {x}" for x in a["found"]))
-        st.markdown(f"**What it did.** {a['did']}")
-        if a["why"]:
-            st.markdown(f"**Why.** {a['why']}")
+        st.markdown(f"**{icon} What just happened.** {a['did']}")
         if next_text:
             st.markdown(f"**What you can do next.** {next_text}")
+        if compact:
+            if a["found"] or a["why"]:
+                with st.expander("Details: what the system found and why"):
+                    if a["found"]:
+                        st.markdown("\n".join(f"- {x}" for x in a["found"]))
+                    if a["why"]:
+                        st.markdown(f"**Why.** {a['why']}")
+        else:
+            if a["found"]:
+                st.markdown("**What the system found**\n" + "\n".join(f"- {x}" for x in a["found"]))
+            if a["why"]:
+                st.markdown(f"**Why.** {a['why']}")
         if a["tone"] == "error":
             st.caption("Nothing was changed by the failed step. Try the action again, or use “Restart this walkthrough” to start clean.")
 

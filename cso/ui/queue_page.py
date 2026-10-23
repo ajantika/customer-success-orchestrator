@@ -32,7 +32,7 @@ def _resolve(db, tid):
     try:
         res = S.resolve_task(db, tid, note, st.session_state.get(f"fix_{tid}", False), session.mode(), session.llm_settings())
     except ValueError as e:
-        session.flash("warning", str(e))
+        session.flash("warning", f"{e} Nothing was changed.")
         return
     if res.get("outcome") == "error":
         session.report_run(res)
@@ -129,9 +129,8 @@ def render():
         if t["status"] != "in_progress":
             st.button("Mark in progress", key=f"st_{sel}", on_click=_start, args=(db, sel))
     with b:
-        st.text_area("Resolution note (required)", key=f"note_{sel}", height=90, placeholder="What was fixed and how it was verified")
-        st.checkbox("Demo helper: pretend the fix unblocked the customer's next step", key=f"fix_{sel}", value=True,
-                    help="Creates a synthetic product event. Without it, the fresh check finds no new progress and the journey simply resumes monitoring.")
-        ok = len(st.session_state.get(f"note_{sel}", "").strip()) >= 10
-        st.button("Resolve task", type="primary", key=f"res_{sel}", on_click=_resolve, args=(db, sel), disabled=not ok,
-                  help=None if ok else "Enter a resolution note of at least 10 characters.")
+        with st.form(key=f"resolve_{sel}"):
+            st.text_area("Resolution note (required)", key=f"note_{sel}", height=90, placeholder="What was fixed and how it was verified (at least 10 characters)")
+            st.checkbox("Demo helper: pretend the fix unblocked the customer's next step", key=f"fix_{sel}", value=True,
+                        help="Creates a sample product event. Without it, the fresh check finds no new progress and the journey simply resumes monitoring.")
+            st.form_submit_button("Save note and resolve", type="primary", on_click=_resolve, args=(db, sel))
