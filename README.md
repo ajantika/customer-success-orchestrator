@@ -17,7 +17,7 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-No API key is needed. On the Overview page choose **Start customer onboarding** or **Start meeting preparation**. Each opens a short guided checklist. The app guides you; written walkthroughs: [Maple Design](docs/DEMO_SCRIPT_MAPLE.md) and [Northstar Retail](docs/DEMO_SCRIPT_NORTHSTAR.md).
+No API key is needed. On the Overview page choose **Explore setup support** or **Explore meeting preparation**. Each opens a short guided checklist. The app guides you; written walkthroughs: [Maple Design](docs/DEMO_SCRIPT_MAPLE.md) and [Northstar Retail](docs/DEMO_SCRIPT_NORTHSTAR.md).
 
 ```bash
 pytest                       # workflow checks, tool/rule tests, UI click-through tests, live-adapter tests with a fake client
@@ -36,9 +36,9 @@ An optional model-backed adapter (`cso/llm.py`, Anthropic Messages API) exists i
 |---|---|
 | Overview | Two entry points, account and journey counts (with definitions), accounts needing attention, daily scan |
 | Customer workspace | Goal, lifecycle stage, owner, products and rollout plan, milestones, learning progress, upcoming meetings, open issues, contact preferences, timeline, and *why* a customer is or isn't eligible for outreach |
-| Customer onboarding | Guided walkthrough with Maple Design: inbox, customer replies, a plain-language "What just happened" card after every action, technical details in an expander |
-| Support tasks | You act as the support specialist: assign, update and resolve handoffs with a required note; opens on the exact task you came from |
-| **Meeting preparation** (Account Team Assistant) | Simulated upcoming meetings, meeting brief, recommendation card with evidence, accept / edit / dismiss / defer / mark discussed, learning outcomes tracked separately, scenario controls, feedback summary |
+| Setup support | Walkthrough with the example company Maple Design: inbox, customer replies, a plain-language "What just happened" card after every action, technical details in an expander |
+| Support tasks | The problem, what was tried and who owns the next step; record how it was resolved with one form; opens on the exact task you came from |
+| **Meeting preparation** | Simulated upcoming meetings, meeting brief, recommendation card with evidence, accept / edit / dismiss / defer / mark discussed, learning outcomes tracked separately, scenario controls, feedback summary |
 | Evaluation | Observed session activity, seeded synthetic history, and system evaluation (workflow checks, human ratings), with definitions and denominators |
 
 ## Project structure
@@ -83,4 +83,4 @@ docs/                   Brief, architecture, decisions, operating model, evaluat
 
 ## Self-service use
 
-The app is designed so a first-time visitor needs no explanation. The Overview states the purpose, users and the two workflows; each walkthrough opens the right customer, explains the situation in a few sentences, shows progress and one highlighted next action, and names the role you are playing at every step ("You are replying as the customer", "acting as the support specialist", "acting as the Account Team"). Every action produces a *What just happened* card (what was found, what was done, why, what to do next). Each walkthrough ends with a summary and next steps. **Restart this walkthrough** resets only that customer; **Back to overview** leaves the walkthrough; **Reset all demo data** (sidebar) resets everything. Details of what was tested are in [docs/USABILITY_REVIEW.md](docs/USABILITY_REVIEW.md).
+A first-time visitor needs no explanation. The Overview says what the demo is for and offers two walkthroughs with their duration. Each walkthrough opens an example customer, explains the situation in a sentence or two, shows progress, and offers one prominent button per step. In the onboarding walkthrough the buttons are the customer's replies themselves ("The directory connection is failing."), and the conversation is shown newest first so the response is easy to find. After each click one short result message appears, with the longer "what happened and why" in a Details section. Each walkthrough ends with a summary and next steps. **Restart this walkthrough** resets only that example customer; **Back to overview** leaves the walkthrough; **Reset all demo data** (sidebar) resets everything. See [docs/USABILITY_REVIEW.md](docs/USABILITY_REVIEW.md).

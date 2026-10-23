@@ -2,17 +2,14 @@
 import streamlit as st
 
 GUIDE = """
-**No login, API key or setup is needed.** Everything is fictional and runs in your browser session.
+**No login or setup is needed.** The demo uses sample data and prepared responses.
 
-1. **Pick a walkthrough** on the Overview page. It opens the right customer and explains the situation.
-2. **Follow the bar at the top.** It shows your progress, the next action and **who you are playing** at that step.
-3. **After every action** read the **What just happened** box: what the system found, what it did, why, and what to do next. Tool calls and evidence are in the expandable sections.
-4. **Roles.** *Customer reply:* you are the customer. *Support task:* you are the support specialist. *Recommendation review:* you are the Account Team. The assistant plays itself.
-5. **Stuck or made a wrong choice?** Use **Restart this walkthrough** (resets only that customer) or **Back to overview**. “Reset all demo data” in the sidebar resets everything. Refreshing the browser tab also starts a brand-new demo.
+1. **Choose a walkthrough** on the Overview page. It opens the example customer and explains the situation.
+2. **Follow the highlighted step.** The progress bar shows where you are, and each step has one main button.
+3. **Read the result** shown after each click. Open “Details” for what the assistant found and why.
+4. **Stuck or made a wrong choice?** Choose **Restart this walkthrough** (resets only that example customer) or **Back to overview**. “Reset all demo data” in the sidebar resets everything. Refreshing the browser tab also starts a new demo.
 
-**Example customer replies:** “The directory connection is failing.” · “We see an authentication error.” · “It times out when we connect.” · “We already tried those steps.” · “Setup is now complete.” · “Please stop sending messages.”
-
-**What “Demo mode” means:** the assistant follows prepared scenarios and rules. No AI model is called. Tools, rules and data changes are real inside this session.
+**Example customer replies:** “The directory connection is failing.” · “We see an authentication error.” · “It times out when we connect.” · “We already tried those steps.” · “Please stop sending messages.”
 """
 
 

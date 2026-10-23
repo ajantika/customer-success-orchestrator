@@ -98,37 +98,38 @@ def mode_label() -> str:
 
 
 def mode_hint() -> str:
-    return "An AI model chooses tools and writes messages; rules still run in code." if mode() == "live" else "A simulation of an agent workflow using prepared scenarios and rules. No AI model is called."
+    return "An AI model chooses tools and writes messages; rules still run in code." if mode() == "live" else "Uses prepared responses and rules. No AI model is called."
 
 
-def record_action(did: str, found: list[str] | None = None, why: str = "", tone: str = "success", run_id: str | None = None):
-    """Remember what the last action found, did and why. Shown once, next to the controls."""
-    st.session_state["last_action"] = {"found": found or [], "did": did, "why": why, "tone": tone, "run_id": run_id}
+def record_action(did: str, found: list[str] | None = None, why: str = "", tone: str = "success", run_id: str | None = None, detail: str | None = None):
+    """Remember the result of the last action: one short message, with longer explanations kept for an optional details section."""
+    st.session_state["last_action"] = {"found": found or [], "did": did, "why": why, "tone": tone, "run_id": run_id, "detail": detail}
+    try:
+        st.toast(did[:140], icon="✅" if tone == "success" else "⚠️" if tone in ("warning", "error") else "ℹ️")
+    except Exception:
+        pass
 
 
-def show_action(next_text: str | None = None, compact: bool = False):
+def show_action(next_text: str | None = None, compact: bool = True):
+    """One short result message; the longer 'what happened and why' sits in an expander."""
     a = st.session_state.get("last_action")
     if not a:
         return
+    icon = {"success": "✅", "warning": "⚠️", "error": "⛔", "info": "ℹ️"}.get(a["tone"], "✅")
     with st.container(border=True):
-        icon = {"success": "✅", "warning": "⚠️", "error": "⛔", "info": "ℹ️"}.get(a["tone"], "✅")
-        st.markdown(f"**{icon} What just happened.** {a['did']}")
+        st.markdown(f"{icon} **{a['did']}**")
         if next_text:
-            st.markdown(f"**What you can do next.** {next_text}")
-        if compact:
-            if a["found"] or a["why"]:
-                with st.expander("Details: what the system found and why"):
-                    if a["found"]:
-                        st.markdown("\n".join(f"- {x}" for x in a["found"]))
-                    if a["why"]:
-                        st.markdown(f"**Why.** {a['why']}")
-        else:
-            if a["found"]:
-                st.markdown("**What the system found**\n" + "\n".join(f"- {x}" for x in a["found"]))
-            if a["why"]:
-                st.markdown(f"**Why.** {a['why']}")
+            st.markdown(next_text)
+        if a.get("detail") or a["found"] or a["why"]:
+            with st.expander("Details: what happened and why"):
+                if a.get("detail"):
+                    st.markdown(f"**What the assistant did.** {a['detail']}")
+                if a["found"]:
+                    st.markdown("**What it found**\n" + "\n".join(f"- {x}" for x in a["found"]))
+                if a["why"]:
+                    st.markdown(f"**Why.** {a['why']}")
         if a["tone"] == "error":
-            st.caption("Nothing was changed by the failed step. Try the action again, or use “Restart this walkthrough” to start clean.")
+            st.caption("Nothing was changed by the failed step. Try the action again, or choose “Restart this walkthrough” to start clean.")
 
 
 def report_run(res: dict):
@@ -139,8 +140,9 @@ def report_run(res: dict):
     elif res.get("run_id"):
         d = narrate.from_run(st.session_state["db"], res["run_id"])
         if res.get("outcome") == "error":
+            d["short"] = "The AI model could not be reached. Nothing was changed."
             d["did"] = f"The AI model call failed: {res.get('error')} Your session and data are unchanged by the failed call."
-        record_action(d["did"], d["found"], d["why"], d["tone"], res["run_id"])
+        record_action(d["short"], d["found"], d["why"], d["tone"], res["run_id"], detail=d["did"])
     else:
         record_action(res.get("summary", "Done."))
     st.session_state.pop("flash", None)
