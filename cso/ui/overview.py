@@ -37,11 +37,14 @@ def _has_progress(db, which: str) -> bool:
     return db.one("SELECT COUNT(*) n FROM recommendations WHERE account_id='ACC-041' AND origin='session'")["n"] > 0
 
 
+CARD_HEIGHT = 370
+
+
 def _card(db, which: str, title: str, desc: str, button: str, start):
     info = walkthroughs.INFO[which]
-    with st.container(border=True):
-        st.markdown(f"#### {title}")
-        st.markdown(desc)
+    with st.container(border=True, height=CARD_HEIGHT):  # same height for both cards so the buttons line up
+        st.markdown(f'<h4 style="min-height:5rem;margin:0">{title}</h4>', unsafe_allow_html=True)   # room for two lines, so the buttons line up
+        st.markdown(f'<div style="min-height:6.6rem">{desc}</div>', unsafe_allow_html=True)
         st.caption(f"About {info['minutes']} minutes")
         if _has_progress(db, which):
             c = st.columns(2)
