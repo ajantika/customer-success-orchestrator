@@ -108,7 +108,7 @@ def _steps(db):
              label="We already tried those steps.", action=reply("We already tried those steps.")),
         dict(title="Resolve the support issue", prompt="Support needs to investigate this issue. Open the task and record how it was resolved. The assistant will then check whether Maple has completed setup.",
              done=q("SELECT COUNT(*) n FROM agent_runs WHERE account_id=? AND trigger='progress_check'", (FEATURED,)),
-             label="Open the support task", action=lambda: _open_handoff(task["id"]) if task else None,
+             label=f"Open Maple's support task · {task['id']}" if task else "Open Maple's support task", action=lambda: _open_handoff(task["id"]) if task else None,
              disabled_reason=None if task else "Available once a support task has been created in the previous step."),
         dict(title="Finish setup", prompt="Maple finishes setting up. The assistant checks product events before closing the journey.", done=j["state"] == "completed",
              label="Simulate completed setup", helper="Adds sample product events so the assistant can verify completion.", action=reply("Setup is now complete.", complete=True)),
@@ -171,7 +171,7 @@ def render():
     pr = rules.progress(db, aid, prod)
     st.caption(f"Setup progress: {pr['done_count']} of {pr['total']} steps. " + (f"Next step: {pr['next_milestone']['customer_label']}." if pr["next_milestone"] else "Setup is complete.") + f" Journey: {STATE_LABEL[j['state']]}.")
     session.show_flash()
-    session.show_action("agent")
+    session.show_action("agent", task_button=False)   # the task link is offered once, below (or as the walkthrough's step button)
     if not guided:
         el = rules.evaluate_outreach(db, jid)
         st.caption("May the assistant contact this customer on its own right now? " + ("**Yes.**" if el.allowed else "**Not right now:** " + narrate.PLAIN.get(el.blockers[0].code, el.blockers[0].message) + "."))
@@ -181,7 +181,7 @@ def render():
         if task:
             c1, c2 = st.columns([4, 2])
             c1.info(f"Support is working on this customer's issue ({task['id']}, {status(task['status']).lower()}).")
-            c2.button(f"Open support task {task['id']}", on_click=_open_handoff, args=(task["id"],), width="stretch")
+            c2.button(f"Open {db.one('SELECT name FROM accounts WHERE id=?', (aid,))['name'].split()[0]}'s support task · {task['id']}", on_click=_open_handoff, args=(task["id"],), type="primary", width="stretch")
     if finished:
         walkthroughs.summary_onboarding(db)
 

@@ -129,7 +129,7 @@ def open_task(task_id: str):
     goto("queue")
 
 
-def show_action(scope: str | None = None, any_customer: bool = False):
+def show_action(scope: str | None = None, any_customer: bool = False, task_button: bool = True):
     """One short result message; the longer 'what happened and why' sits in an expander.
 
     A result belongs to the page named in its scope and to the customer it was about, so it never shows up under another customer or workflow."""
@@ -141,8 +141,9 @@ def show_action(scope: str | None = None, any_customer: bool = False):
     icon = {"success": "✅", "warning": "⚠️", "error": "⛔", "info": "ℹ️"}.get(a["tone"], "✅")
     with st.container(border=True):
         st.markdown(f"{icon} **{a['did']}**")
-        if a.get("task_id"):
-            st.button(f"Open support task {a['task_id']}", key=f"ot_{a['task_id']}", on_click=open_task, args=(a["task_id"],))
+        if a.get("task_id") and task_button:
+            name = st.session_state["db"].one("SELECT a.name FROM accounts a JOIN human_tasks t ON t.account_id=a.id WHERE t.id=?", (a["task_id"],))["name"]
+            st.button(f"Open {name.split()[0]}'s support task · {a['task_id']}", key=f"ot_{a['task_id']}", on_click=open_task, args=(a["task_id"],), type="primary")
         if a.get("detail") or a["found"] or a["why"]:
             with st.expander("Details: what happened and why"):
                 if a.get("detail"):
