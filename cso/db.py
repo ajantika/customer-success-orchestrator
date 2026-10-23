@@ -14,7 +14,7 @@ SCHEMA = """
 CREATE TABLE settings(key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE seq(prefix TEXT PRIMARY KEY, n INTEGER);
 CREATE TABLE accounts(id TEXT PRIMARY KEY, name TEXT, segment TEXT, goal TEXT, scenario TEXT,
-  needs_directory INTEGER DEFAULT 0, data_refreshed_at TEXT);
+  needs_directory INTEGER DEFAULT 0, data_refreshed_at TEXT, lifecycle TEXT DEFAULT 'onboarding', owner TEXT, solutions_architect TEXT);
 CREATE TABLE contacts(id TEXT PRIMARY KEY, account_id TEXT, name TEXT, email TEXT, role TEXT,
   is_admin INTEGER, opted_out INTEGER DEFAULT 0, preferred_channel TEXT DEFAULT 'email', consent INTEGER DEFAULT 1);
 CREATE TABLE subscriptions(id TEXT PRIMARY KEY, account_id TEXT, product TEXT, bundle INTEGER, status TEXT);
@@ -38,8 +38,23 @@ CREATE TABLE tool_executions(rid INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT UNIQ
 CREATE TABLE idempotency(key TEXT PRIMARY KEY, tool TEXT, result TEXT, created_at TEXT);
 CREATE TABLE guard_log(id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT, account_id TEXT, journey_id TEXT, detail TEXT, ts TEXT, origin TEXT);
 CREATE TABLE eval_results(id INTEGER PRIMARY KEY AUTOINCREMENT, suite TEXT, name TEXT, passed INTEGER, detail TEXT, ran_at TEXT);
-CREATE TABLE ratings(id INTEGER PRIMARY KEY AUTOINCREMENT, interaction_id TEXT, relevance INTEGER, groundedness INTEGER,
-  correctness INTEGER, instruction_following INTEGER, helpfulness INTEGER, clarity INTEGER, note TEXT, ts TEXT);
+CREATE TABLE ratings(id INTEGER PRIMARY KEY AUTOINCREMENT, interaction_id TEXT, kind TEXT DEFAULT 'message', relevance INTEGER, groundedness INTEGER,
+  correctness INTEGER, instruction_following INTEGER, helpfulness INTEGER, clarity INTEGER, timing INTEGER, role_fit INTEGER,
+  prerequisite_fit INTEGER, usefulness INTEGER, note TEXT, ts TEXT);
+CREATE TABLE meetings(id TEXT PRIMARY KEY, account_id TEXT, owner TEXT, solutions_architect TEXT, starts_at TEXT, purpose TEXT,
+  attendee_roles TEXT, status TEXT, previous_start TEXT, origin TEXT);
+CREATE TABLE courses(id TEXT PRIMARY KEY, product TEXT, topic TEXT, title TEXT, persona TEXT, difficulty TEXT, prerequisites TEXT,
+  skills TEXT, format TEXT, duration_min INTEGER, paid INTEGER, price_note TEXT, availability TEXT, source_doc TEXT, source_section TEXT, updated_at TEXT);
+CREATE TABLE learner_records(id INTEGER PRIMARY KEY AUTOINCREMENT, learner_id TEXT, account_id TEXT, role TEXT, course_id TEXT,
+  status TEXT, completed_at TEXT, record_updated_at TEXT, origin TEXT);
+CREATE TABLE recommendations(id TEXT PRIMARY KEY, account_id TEXT, meeting_id TEXT, status TEXT, action_type TEXT, title TEXT, why_now TEXT,
+  goal TEXT, talking_point TEXT, brief TEXT, evidence TEXT, learner_group TEXT, courses TEXT, unknowns TEXT, completeness TEXT,
+  generation_mode TEXT, agent_version TEXT, dedupe_key TEXT, needs_refresh INTEGER DEFAULT 0, defer_until TEXT,
+  content_original TEXT, content_current TEXT, created_at TEXT, updated_at TEXT, origin TEXT);
+CREATE TABLE rec_feedback(id INTEGER PRIMARY KEY AUTOINCREMENT, rec_id TEXT, account_id TEXT, meeting_id TEXT, reviewer TEXT, action TEXT,
+  reason TEXT, note TEXT, original TEXT, revised TEXT, ts TEXT, origin TEXT);
+CREATE TABLE learning_outcomes(id INTEGER PRIMARY KEY AUTOINCREMENT, rec_id TEXT, account_id TEXT, stage TEXT, learner_count INTEGER, ts TEXT, origin TEXT);
+CREATE TABLE meeting_events(id INTEGER PRIMARY KEY AUTOINCREMENT, meeting_id TEXT, event TEXT, reviewer TEXT, ts TEXT, origin TEXT);
 """
 
 ISO = "%Y-%m-%dT%H:%M:%S"
@@ -129,5 +144,5 @@ class DB:
         self.insert("guard_log", kind=kind, account_id=account_id, journey_id=journey_id, detail=detail, ts=to_iso(self.now()))
 
 
-ORIGIN_TABLES = {"product_events", "support_cases", "interactions", "journeys", "scheduled_actions", "human_tasks",
+ORIGIN_TABLES = {"meetings", "learner_records", "recommendations", "rec_feedback", "learning_outcomes", "meeting_events", "product_events", "support_cases", "interactions", "journeys", "scheduled_actions", "human_tasks",
                  "agent_runs", "tool_executions", "guard_log"}

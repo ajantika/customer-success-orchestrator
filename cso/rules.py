@@ -33,15 +33,23 @@ def progress(db: DB, account_id: str, product: str) -> dict:
         "SELECT event_type, MIN(ts) ts FROM product_events WHERE account_id=? AND product=? GROUP BY event_type", (account_id, product))}
     ms = []
     for m in milestone_defs(db, account_id, product):
-        ms.append({"key": m["key"], "label": m["label"], "done": m["key"] in ev, "done_at": ev.get(m["key"])})
+        ms.append({"key": m["key"], "label": m["label"], "customer_label": m.get("customer_label") or m["label"], "done": m["key"] in ev, "done_at": ev.get(m["key"])})
     nxt = next((m for m in ms if not m["done"]), None)
     last = max((m["done_at"] for m in ms if m["done_at"]), default=None)
+    now = db.now()
+
+    def _count(kind: str, lo: int, hi: int) -> int:
+        return db.one("SELECT COUNT(*) n FROM product_events WHERE account_id=? AND product=? AND event_type=? AND ts>? AND ts<=?",
+                      (account_id, product, kind, to_iso(now - timedelta(days=hi)), to_iso(now - timedelta(days=lo))))["n"]
+
     acc = db.one("SELECT data_refreshed_at FROM accounts WHERE id=?", (account_id,))
     as_of = acc["data_refreshed_at"] if acc else None
     stale = (as_of is None) or (db.now() - from_iso(as_of) > timedelta(days=db.get_settings().stale_data_days))
     return {"product": product, "milestones": ms, "complete": bool(ms) and nxt is None, "next_milestone": nxt,
             "last_progress_at": last, "done_count": sum(m["done"] for m in ms), "total": len(ms),
-            "data_as_of": as_of, "stale": stale}
+            "data_as_of": as_of, "stale": stale,
+            "usage_recent": _count("usage_session", 0, 14), "usage_prior": _count("usage_session", 14, 44),
+            "workflow_recent": _count("shared_workflow_used", 0, 14), "workflow_prior": _count("shared_workflow_used", 14, 44)}
 
 
 def add_event(db: DB, account_id: str, product: str, event_type: str, ts: datetime | None = None):
@@ -251,12 +259,31 @@ _PATTERNS = [
 ]
 
 
+_ERRORS = [
+    ("authentication", r"authenticat|auth(orization)? (error|fail)|log ?in (fail|error)|sign.?in (fail|error)|password|credential|denied|unauthori[sz]ed|\b40[13]\b|token (expired|invalid)"),
+    ("timeout", r"time[sd]?.?out|timed out|unreachable|cannot be reached|can'?t reach|port 636|firewall|connection refused"),
+    ("no_groups", r"no groups|groups? (don'?t|do not|not|aren'?t|isn'?t) (sync|show|appear)|nothing (syncs|syncing)"),
+    ("attribute_mapping", r"attribute|mapping|missing email|email field"),
+]
+
+
+def detect_error_type(text: str) -> str | None:
+    t = (text or "").lower()
+    return next((k for k, pat in _ERRORS if re.search(pat, t)), None)
+
+
 def classify_message(text: str) -> dict:
     """Keyword screen of an inbound message. Output is a hint; policies are enforced in tools regardless."""
     t = text.lower()
+    et = detect_error_type(text)
     for intent, pat in _PATTERNS:
         if re.search(pat, t):
-            return {"intent": "issue_directory" if intent == "issue" else intent, "screen": "keyword rules"}
+            out = {"intent": "issue_directory" if intent == "issue" else intent, "screen": "keyword rules"}
+            if out["intent"] == "issue_directory" and et:
+                out["error_type"] = et
+            return out
+    if et:
+        return {"intent": "issue_directory", "screen": "keyword rules", "error_type": et}
     return {"intent": "unknown", "screen": "keyword rules"}
 
 

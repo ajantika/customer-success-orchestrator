@@ -146,7 +146,12 @@ def pct(n: int, d: int) -> str:
 
 def session_metrics(db: DB) -> dict:
     g = lambda kind: db.one("SELECT COUNT(*) n FROM guard_log WHERE origin='session' AND kind=?", (kind,))["n"]
-    tool = db.one("SELECT COUNT(*) n, SUM(CASE WHEN ok=0 THEN 1 ELSE 0 END) err, SUM(deduplicated) dup FROM tool_executions WHERE origin='session'")
+    from .tools import POLICY_CODES
+    texec = db.q("SELECT ok, error, deduplicated FROM tool_executions WHERE origin='session'")
+    dup = sum(1 for r in texec if r["deduplicated"])
+    ok_n = sum(1 for r in texec if r["ok"] and not r["deduplicated"])
+    pol = sum(1 for r in texec if not r["ok"] and r["error"] in POLICY_CODES)
+    tech = sum(1 for r in texec if not r["ok"] and r["error"] not in POLICY_CODES)
     start = db.one("SELECT value FROM settings WHERE key='session_start'")["value"]
     open_at_start = int(db.one("SELECT value FROM settings WHERE key='open_at_start'")["value"])
     done = db.one("SELECT COUNT(*) n FROM journeys WHERE state='completed' AND completed_at>=?", (start,))["n"]
@@ -154,7 +159,7 @@ def session_metrics(db: DB) -> dict:
         "runs": db.one("SELECT COUNT(*) n FROM agent_runs WHERE origin='session'")["n"],
         "agent_messages": db.one("SELECT COUNT(*) n FROM interactions WHERE origin='session' AND actor='agent' AND kind='message'")["n"],
         "customer_messages": db.one("SELECT COUNT(*) n FROM interactions WHERE origin='session' AND actor='customer'")["n"],
-        "tool_calls": tool["n"] or 0, "tool_errors": tool["err"] or 0,
+        "tool_calls": len(texec), "tool_success": ok_n, "tool_policy_blocks": pol, "tool_technical_failures": tech, "tool_duplicates_returned": dup,
         "duplicates_prevented": g("duplicate_prevented"),
         "outreach_prevented": g("outreach_blocked") + g("outreach_prevented") + g("repeat_guidance_prevented"),
         "policy_overrides": g("policy_override_rejected"),
@@ -162,7 +167,8 @@ def session_metrics(db: DB) -> dict:
         "handoffs_resolved": db.one("SELECT COUNT(*) n FROM human_tasks WHERE origin='session' AND status='resolved'")["n"],
         "journeys_completed": done, "open_at_start": open_at_start,
         "opted_out": db.one("SELECT COUNT(*) n FROM journeys WHERE state='opted_out' AND updated_at>=? AND origin='seed'", (start,))["n"],
-        "error_codes": db.q("SELECT error, COUNT(*) n FROM tool_executions WHERE origin='session' AND ok=0 GROUP BY error ORDER BY n DESC"),
+        "error_codes": [dict(r, kind="Expected policy block" if r["error"] in POLICY_CODES else "Technical failure")
+                        for r in db.q("SELECT error, COUNT(*) n FROM tool_executions WHERE origin='session' AND ok=0 GROUP BY error ORDER BY n DESC")],
     }
 
 

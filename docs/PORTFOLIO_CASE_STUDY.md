@@ -1,33 +1,29 @@
 # Case study: Customer Success Orchestrator
 
-*A personal prototype built to explore how agentic customer success could work. Fictional company, synthetic data, no real customers or results.*
+*A personal prototype exploring how agentic assistance could support customer success. Fictional company, synthetic data, no real customers or results.*
 
-## Problem
-Customers who buy several products adopt them on their own schedule. Success teams want to help when setup stalls, but three things go wrong: outreach ignores the customer's rollout plan, automation collides with open support issues, and handoffs to people lose context. Adding an AI agent makes all three easier to get wrong unless the rules are explicit.
+## Why these two workflows
+Customer success work has two linked halves. **Customers** need timely, relevant help getting set up. **Account Teams** need to walk into conversations knowing the customer's goal and situation. Both depend on the same signals: product usage, rollout plans, support cases, documentation and learning progress. Building both on one data foundation shows reuse, and shows that the hard part is not generating text but deciding *whether* and *when* to act.
 
-## Product approach
-Treat the agent as a **bounded operator inside a rule-enforced system**, not a chatbot. Signals (milestone events, plans, history, cases) feed one onboarding agent. The agent can call ten tools; each tool validates input, enforces account boundaries and consults code-level rules before changing state. A human queue receives escalations with the customer's goal, what was sent and what the customer already tried.
+## Onboarding approach
+A bounded agent with ten tools helps eligible customers. Rules in code decide who may be contacted. When a customer reports a problem without detail, the agent asks one short question before sending instructions, avoids repeating anything already tried, cites the documents it actually retrieved, and hands off to a person with full context. Resolving a ticket forces a fresh progress check rather than assuming success.
 
-## Agent capabilities
-Gathers context, reads fresh progress, retrieves documentation with sources, interprets replies, sends guidance on the customer's channel, pauses/resumes journeys, opens exactly one handoff, completes journeys only on product evidence, honours opt-outs, and refuses policy-override attempts. It stops at completion or a configurable step limit.
+## How recommendations fit the Account Team's work
+The assistant prepares a meeting brief and one recommendation where the AE and SA already look: an upcoming-meetings list with the account, owner, purpose and lifecycle stage. The recommendation states the next action, why now, the customer goal it supports, evidence with timestamps, what is still unknown, and a short talking point. It is deliberately phrased as a question to ask ("does the team need help applying the workflow?") because low usage is not proof of a skills gap. It changes shape when facts change: technical blocker first, wait for a delayed rollout, ask for missing learner data, do not repeat completed courses, start with an unmet prerequisite, and justify any paid option against free ones.
+
+## Human review and feedback
+The Account Team accepts, edits, dismisses (with a reason), defers or marks the item discussed. The original is preserved next to any edit. Accepting never enrols anyone; learning outcomes are tracked separately. A feedback summary (dismissal reasons, edited recommendations, accepted-but-undiscussed, repeated information gaps) tells a product owner what to improve. It would inform roadmap decisions such as better learner-data capture or catalog gaps. The assistant does not learn from it automatically.
 
 ## Key decisions
-- **Policy in code, not prompts.** The same gate protects Scripted and Live modes.
-- **Two modes with honest labels.** A deterministic Scripted mode makes the demo reliable and testable without keys; it never claims to be an LLM.
-- **Journey state ≠ milestone status.** "Paused" and "half set up" are different facts.
-- **Human resolution ≠ onboarding success.** Resolving a ticket forces a fresh progress check.
-- **Fail loudly.** A failed handoff produces a message that says nothing was created.
-- **Idempotency everywhere** so reruns and retries can't duplicate messages or tasks.
+Policy in code, not prompts. Two modes with honest labels. Evidence IDs and citation checks so claims are supportable. Human-only review actions and per-workflow tool allow-lists. Stable selection state. Evidence completeness instead of fake confidence scores.
 
 ## What was built and tested
-A six-page Streamlit app over a session-isolated SQLite state layer with 40 deterministic synthetic accounts, a 10-document fictional knowledge base with TF-IDF retrieval, ten validated tools, a bounded agent loop, a scripted decider and a live Anthropic decider, a configurable policy, and an evaluation page that separates observed, seeded and evaluated results.
-Tested: 15 workflow checks (all passing), plus unit, UI click-through and fake-client live-adapter tests (34 tests in total). See [EVALUATION.md](EVALUATION.md).
+A seven-page Streamlit app on session-isolated SQLite with 43 synthetic accounts, a fictional training catalog, 16 tools, a deterministic decider and a live decider behind the same tool layer, and an evaluation page that separates observed, seeded and tested results. 59 automated tests pass, including 34 workflow checks and UI click-through tests. See [EVALUATION.md](EVALUATION.md).
 
-## What would need validation in production
-- Real-model behaviour: groundedness, tone and escalation judgement under human rating.
-- Intent understanding beyond keywords; multilingual replies.
-- Thresholds and frequency limits calibrated on real data, per segment.
-- Data freshness, event latency and identity matching across systems.
-- Consent and regional contact rules.
-- Causal impact: a randomised pilot with a holdout, a pre-registered primary metric and guardrails for opt-outs and complaints.
-- Operational fit: handoff SLAs, ownership of documentation, and incident response for agent errors.
+## What must be validated before a production rollout
+- Real-model behaviour for both workflows, with human ratings of timing, fit, prerequisite handling and usefulness.
+- Whether reviewers find briefs faster and better than their current preparation (time sampling, adoption by role).
+- Data quality and freshness of usage, learner and support records, and identity matching across systems.
+- Whether recommendations lead to useful conversations and downstream learning, using a randomised or otherwise comparable group.
+- Privacy, consent and regional rules for contacting customers and using learner data.
+- Operational ownership: catalog upkeep, review workload, incident response for wrong recommendations.

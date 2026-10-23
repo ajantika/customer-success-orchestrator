@@ -10,6 +10,7 @@ from .models import PRODUCTS, DEFAULT_MILESTONES, Settings
 
 SEED = 7
 FEATURED = "ACC-001"
+from .seed_team import NORTHSTAR, seed_catalog, seed_northstar, seed_team_history
 
 NAMES = [
     "Harbor Logistics", "Juniper Health", "Northwind Studio", "Copperline Finance", "Alder & Pine", "Brightpath Learning",
@@ -78,6 +79,9 @@ def build_db(seed: int = SEED) -> DB:
         db.insert("human_tasks", id=db.next_id("TSK"), account_id=a["id"], journey_id=j["id"], product=prod, issue="Directory sync did not start",
                   category="integration", priority="medium", team="Technical Support", status="resolved", assignee="Ari (Tech Support)",
                   context="{}", resolution_note="Historical synthetic record.", created_at=to_iso(created), resolved_at=to_iso(created + timedelta(days=2)), case_id=cid)
+    seed_catalog(db, now)
+    seed_northstar(db, rng, now)
+    seed_team_history(db, rng, now)
     from .services import snapshot_seed
     snapshot_seed(db)
     db.origin = "session"
@@ -128,7 +132,7 @@ def _maple(db, rng, now):
     db.next_id("ACC")  # keep the account sequence aligned
     db.insert("accounts", id=aid, name="Maple Design", segment="Mid-market", scenario="featured", needs_directory=1,
               goal="Move team documentation into one shared workspace and connect it to our employee directory this quarter.",
-              data_refreshed_at=to_iso(now - timedelta(hours=1)))
+              data_refreshed_at=to_iso(now - timedelta(hours=1)), lifecycle="onboarding", owner="Jamie Ortiz", solutions_architect="Morgan Ellis")
     cid = db.next_id("CON")
     db.insert("contacts", id=cid, account_id=aid, name="Jordan Reyes", email="jordan@maple-design.example", role="Workspace administrator",
               is_admin=1, opted_out=0, preferred_channel="email", consent=1)
@@ -155,7 +159,8 @@ def _account(db, rng, now, aid, name, scen):
     needs_dir = int("docs" in prods and rng.random() < 0.6) or int(scen in ("technical", "needs_human", "guided", "channel_switch"))
     refreshed = now - timedelta(days=30) if scen == "stale_data" else now - timedelta(hours=rng.randint(1, 20))
     db.insert("accounts", id=aid, name=name, segment=rng.choice(["SMB", "Mid-market"]), scenario=scen, needs_directory=needs_dir if "docs" in prods else 0,
-              goal=None if False else GOALS[focus], data_refreshed_at=to_iso(refreshed))
+              goal=GOALS[focus], data_refreshed_at=to_iso(refreshed),
+              lifecycle="adoption" if scen == "completed" else "onboarding")
     channel = "chat" if scen == "channel_switch" else "email"
     cid = _contact(db, rng, aid, name, opted=int(scen == "opted_out"), email=scen != "missing_contact", channel=channel)
     bundle = int(len(prods) == 3)

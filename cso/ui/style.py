@@ -1,4 +1,4 @@
-"""Shared visual language: colours, badges, message bubbles, account picker."""
+"""Shared visual language (dark theme), badges, message bubbles and the account picker."""
 from __future__ import annotations
 
 import html
@@ -6,52 +6,86 @@ import json
 
 import streamlit as st
 
+from .. import session
 from ..models import PRODUCT_LABEL, STATE_LABEL
 from ..retrieval import get_retriever
 
-STATE_COLOR = {
-    "monitoring": ("#1d4ed8", "#e8efff"), "guidance_sent": ("#0f766e", "#def7f3"), "waiting_for_customer": ("#0f766e", "#def7f3"),
-    "paused_until_rollout": ("#4b5563", "#eceef2"), "waiting_for_human": ("#9a3412", "#ffeedd"),
-    "resolved_awaiting_progress_check": ("#6d28d9", "#efe9ff"), "completed": ("#166534", "#dcf5e4"), "opted_out": ("#9f1239", "#fde8ee"),
+STATE_COLOR = {  # (text, background) tuned for the dark theme
+    "monitoring": ("#9bbcff", "#1e2f6b"), "guidance_sent": ("#7ce8d6", "#12433f"), "waiting_for_customer": ("#7ce8d6", "#12433f"),
+    "paused_until_rollout": ("#c3c8d6", "#343a52"), "waiting_for_human": ("#ffc58a", "#5a3414"),
+    "resolved_awaiting_progress_check": ("#d2bcff", "#412a73"), "completed": ("#8ff0ad", "#143f27"), "opted_out": ("#ffa3b8", "#59182f"),
+    "generated": ("#9bbcff", "#1e2f6b"), "reviewed": ("#d2bcff", "#412a73"), "accepted": ("#8ff0ad", "#143f27"), "edited": ("#8ff0ad", "#143f27"),
+    "dismissed": ("#ffa3b8", "#59182f"), "deferred": ("#ffc58a", "#5a3414"), "discussed": ("#7ce8d6", "#12433f"), "withdrawn": ("#c3c8d6", "#343a52"),
 }
 
 CSS = """
 <style>
-:root { --ink:#1f2937; --muted:#5b6472; --line:#e3e7ee; --soft:#f4f6fb; --brand:#3b4cca; }
+:root { --ink:#f1f0ff; --muted:#aaa6d6; --line:#33306b; --soft:#1a1545; --brand:#8b8cf8; }
+.stApp { background: radial-gradient(1200px 600px at 70% -10%, #2a1f6b 0%, #120e33 55%); }
+[data-testid="stSidebar"] { background:#0e0a2a; border-right:1px solid var(--line); }
 .block-container { padding-top: 2.2rem; max-width: 1280px; }
-h1, h2, h3 { letter-spacing: -0.01em; color: var(--ink); }
+h1, h2, h3, h4 { letter-spacing: -0.01em; }
+[data-testid="stMetric"] { background:rgba(139,140,248,0.08); border:1px solid var(--line); border-radius:14px; padding:14px 16px; }
+[data-testid="stMetricLabel"] p { white-space:normal !important; line-height:1.25; }
 .cso-badge { display:inline-block; padding:2px 10px; border-radius:999px; font-size:0.78rem; font-weight:600; white-space:nowrap; }
 .cso-pill { display:inline-block; padding:1px 8px; border-radius:6px; font-size:0.74rem; background:var(--soft); color:var(--muted); border:1px solid var(--line); margin-right:4px; }
 .cso-msg { border-radius:12px; padding:12px 14px; margin:10px 0 2px 0; font-size:0.94rem; line-height:1.5; border:1px solid var(--line); }
 .cso-msg .meta { font-size:0.74rem; color:var(--muted); margin-bottom:4px; font-weight:600; letter-spacing:0.02em; text-transform:uppercase; }
-.cso-customer { background:#ffffff; border-left:4px solid #1d4ed8; margin-right:12%; }
-.cso-agent { background:#eef0ff; border-left:4px solid #3b4cca; margin-left:12%; }
-.cso-human { background:#fff6e5; border-left:4px solid #b45309; margin-left:6%; margin-right:6%; }
-.cso-system { background:var(--soft); border-left:4px solid #9aa3b2; font-size:0.84rem; color:var(--muted); }
+.cso-customer { background:#171a4d; border-left:4px solid #60a5fa; margin-right:12%; }
+.cso-agent { background:#2b2470; border-left:4px solid #a78bfa; margin-left:12%; }
+.cso-human { background:#3a2a22; border-left:4px solid #f0a050; margin-left:6%; margin-right:6%; }
+.cso-system { background:var(--soft); border-left:4px solid #6c6aa8; font-size:0.84rem; color:var(--muted); }
 .cso-strip { color:var(--muted); font-size:0.8rem; }
-.cso-card { border:1px solid var(--line); border-radius:12px; padding:14px 16px; background:#fff; }
-.cso-ok { color:#166534; font-weight:600; } .cso-no { color:#9f1239; font-weight:600; }
 .cso-mode { display:inline-block; padding:3px 10px; border-radius:6px; font-weight:700; font-size:0.8rem; }
-.cso-mode.scripted { background:#fff3cd; color:#7a5200; } .cso-mode.live { background:#dcf5e4; color:#166534; }
+.cso-mode.scripted { background:#3b3170; color:#d9d3ff; } .cso-mode.live { background:#14523a; color:#9af0c4; }
+.cso-card { border:1px solid var(--line); border-radius:14px; padding:16px 18px; background:rgba(139,140,248,0.06); }
+blockquote { border-left:3px solid var(--brand); color:var(--ink) !important; background:rgba(139,140,248,0.08); padding:8px 14px; border-radius:6px; }
+.cso-kpi { font-size:0.8rem; text-transform:uppercase; letter-spacing:0.06em; color:var(--muted); }
 </style>
 """
+
+
+STATE_LABEL_ = STATE_LABEL
 
 
 def inject():
     st.markdown(CSS, unsafe_allow_html=True)
 
 
-def badge(state: str) -> str:
-    fg, bg = STATE_COLOR.get(state, ("#374151", "#eceef2"))
-    return f'<span class="cso-badge" style="color:{fg};background:{bg}">{html.escape(STATE_LABEL.get(state, state))}</span>'
+def badge(state: str, label: str | None = None) -> str:
+    fg, bg = STATE_COLOR.get(state, ("#d9d6ff", "#2b2760"))
+    text = label or STATE_LABEL.get(state) or state.replace("_", " ").capitalize()
+    return f'<span class="cso-badge" style="color:{fg};background:{bg}">{html.escape(text)}</span>'
 
 
 def product_pill(p: str) -> str:
     return f'<span class="cso-pill">{html.escape(PRODUCT_LABEL.get(p, p))}</span>'
 
 
+def mode_pill() -> str:
+    cls = "live" if session.mode() == "live" else "scripted"
+    return f'<span class="cso-mode {cls}">{html.escape(session.mode_label())}</span>'
+
+
 def _fmt(s: str) -> str:
     return html.escape(s).replace("\n", "<br>")
+
+
+def show_sources(srcs: list[dict], key: str):
+    """Document titles with the relevant sections; each document opens to its excerpt."""
+    if not srcs:
+        return
+    ret = get_retriever()
+    for s in srcs:
+        secs = s.get("sections") or []
+        label = f"{s['title']} ({s['doc_id']})" + (f" · {', '.join(secs)}" if secs else "")
+        with st.expander(f"Source: {label}"):
+            chunks = ret.get(s["doc_id"])
+            shown = [c for c in chunks if c.section in secs] or chunks
+            for c in shown:
+                st.markdown(f"**{c.section}**\n\n{c.text}")
+            if s.get("xref"):
+                st.caption("Also referenced by the message above.")
 
 
 def bubble(row: dict):
@@ -64,38 +98,50 @@ def bubble(row: dict):
         subject, _, body = body.partition("\n\n")
         subject = subject[9:]
     ch = row["channel"] if row["channel"] in ("email", "chat") else ""
-    meta = f"{who} · {ch} · {row['ts'].replace('T', ' ')[:16]}" if ch else f"{who} · {row['ts'].replace('T', ' ')[:16]}"
+    ts = row["ts"].replace("T", " ")[:16]
+    meta = f"{who} · {ch} · {ts}" if ch else f"{who} · {ts}"
     subj = f"<div style='font-weight:600;margin-bottom:4px'>{html.escape(subject)}</div>" if subject else ""
     st.markdown(f'<div class="cso-msg {cls}"><div class="meta">{html.escape(meta)}</div>{subj}{_fmt(body)}</div>', unsafe_allow_html=True)
-    srcs = json.loads(row.get("sources") or "[]")
-    if srcs:
-        with st.expander(f"Sources ({len(srcs)}): " + ", ".join(s["doc_id"] for s in srcs)):
-            for s in srcs:
-                st.markdown(f"**{s['doc_id']} · {s['title']}**")
-                for c in get_retriever().get(s["doc_id"]):
-                    st.markdown(f"*{c.section}*\n\n{c.text}")
+    show_sources(json.loads(row.get("sources") or "[]"), row["id"])
 
 
-def account_picker(db, key: str = "sel_acc", with_product: bool = True) -> tuple[str, str | None]:
-    accts = db.q("SELECT id, name, scenario FROM accounts ORDER BY CASE id WHEN 'ACC-001' THEN 0 ELSE 1 END, name")
+# ------------------------------------------------------------ selection ---
+def _on_acct():
+    st.session_state["acct"] = st.session_state.get("w_acct")
+
+
+def _on_prod():
+    st.session_state["prod"] = st.session_state.get("w_prod")
+
+
+def account_picker(db, with_product: bool = True) -> tuple[str | None, str | None]:
+    """Customer (and product) selectors driven by the canonical session values and stable IDs."""
+    accts = db.q("SELECT id, name FROM accounts ORDER BY CASE WHEN id IN ('ACC-001','ACC-041') THEN 0 ELSE 1 END, name")
     ids = [a["id"] for a in accts]
-    labels = {a["id"]: f"{a['name']} ({a['id']})" for a in accts}
-    if st.session_state.get(key) not in ids:
-        st.session_state[key] = None
+    names = {a["id"]: a["name"] for a in accts}
+    cur = st.session_state.get("acct")
+    if cur not in ids:
+        cur = None
+        st.session_state["acct"] = None
+    st.session_state["w_acct"] = cur  # keep the widget in step with what is actually displayed
     c1, c2 = st.columns([2, 3])
-    aid = c1.selectbox("Customer", ids, format_func=labels.get, key=key, index=None, placeholder="Select a customer…")
-    if aid is None:
+    c1.selectbox("Customer", ids, index=None, format_func=lambda i: names[i], placeholder="Select a customer…", key="w_acct", on_change=_on_acct)
+    if cur is None:
         return None, None
     jid = None
     if with_product:
-        js = db.q("SELECT id, product, state FROM journeys WHERE account_id=? ORDER BY product", (aid,))
+        js = db.q("SELECT id, product, state FROM journeys WHERE account_id=? ORDER BY product", (cur,))
         prods = [j["product"] for j in js]
-        if st.session_state.get("sel_prod") not in prods and prods:
-            st.session_state["sel_prod"] = prods[0]
-        prod = c2.radio("Product journey", prods, format_func=lambda p: f"{PRODUCT_LABEL[p]} · {STATE_LABEL[next(j['state'] for j in js if j['product'] == p)]}",
-                        horizontal=True, key="sel_prod")
-        jid = next((j["id"] for j in js if j["product"] == prod), None)
-    return aid, jid
+        if not prods:
+            return cur, None
+        prod = st.session_state.get("prod")
+        if prod not in prods:
+            prod = prods[0]
+            st.session_state["prod"] = prod
+        st.session_state["w_prod"] = prod
+        c2.radio("Product", prods, format_func=lambda p: PRODUCT_LABEL[p], horizontal=True, key="w_prod", on_change=_on_prod)
+        jid = next(j["id"] for j in js if j["product"] == prod)
+    return cur, jid
 
 
 def footer_label():

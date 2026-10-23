@@ -52,24 +52,25 @@ def can_transition(old: str, new: str) -> bool:
 
 DEFAULT_MILESTONES = {
     "tasks": [
-        {"key": "workspace_created", "label": "Workspace created", "enabled": True},
-        {"key": "members_invited", "label": "Team members invited", "enabled": True},
-        {"key": "first_project_created", "label": "First project created", "enabled": True},
-        {"key": "first_task_completed", "label": "First task completed", "enabled": True},
+        {"key": "workspace_created", "label": "Workspace created", "customer_label": "Create your Tasks workspace", "enabled": True},
+        {"key": "members_invited", "label": "Team members invited", "customer_label": "Invite your team", "enabled": True},
+        {"key": "first_project_created", "label": "First project created", "customer_label": "Create your first project", "enabled": True},
+        {"key": "first_task_completed", "label": "First task completed", "customer_label": "Complete your first task", "enabled": True},
     ],
     "docs": [
-        {"key": "workspace_created", "label": "Workspace created", "enabled": True},
-        {"key": "integration_connected", "label": "Required integration connected", "enabled": True, "applies_if": "needs_directory"},
-        {"key": "first_doc_published", "label": "First document published", "enabled": True},
-        {"key": "first_doc_shared", "label": "First document shared with another user", "enabled": True},
+        {"key": "workspace_created", "label": "Workspace created", "customer_label": "Create your Docs workspace", "enabled": True},
+        {"key": "integration_connected", "label": "Required integration connected", "customer_label": "Connect your employee directory", "enabled": True, "applies_if": "needs_directory"},
+        {"key": "first_doc_published", "label": "First document published", "customer_label": "Publish your first document", "enabled": True},
+        {"key": "first_doc_shared", "label": "First document shared with another user", "customer_label": "Share a document with a teammate", "enabled": True},
     ],
     "support": [
-        {"key": "workspace_created", "label": "Service workspace created", "enabled": True},
-        {"key": "channel_configured", "label": "Request channel configured", "enabled": True},
-        {"key": "first_request_submitted", "label": "First request submitted", "enabled": True},
-        {"key": "first_request_resolved", "label": "First request resolved", "enabled": True},
+        {"key": "workspace_created", "label": "Service workspace created", "customer_label": "Create your service workspace", "enabled": True},
+        {"key": "channel_configured", "label": "Request channel configured", "customer_label": "Set up a request channel", "enabled": True},
+        {"key": "first_request_submitted", "label": "First request submitted", "customer_label": "Submit your first request", "enabled": True},
+        {"key": "first_request_resolved", "label": "First request resolved", "customer_label": "Resolve your first request", "enabled": True},
     ],
 }
+
 
 # Search query used to find guidance for each milestone.
 MILESTONE_QUERY = {
