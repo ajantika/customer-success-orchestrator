@@ -69,27 +69,28 @@ def test_customer_and_agent_pages_show_the_same_customer():
 
 def test_guided_demo_opens_maple_agent_workspace():
     at = _at("overview")
-    _btn(at, "Start with Maple Design").click().run()
+    _btn(at, "Start customer onboarding").click().run()
     assert at.session_state["acct"] == FEATURED and at.session_state["guided"] == "onboarding"
-    assert at.selectbox(key="w_acct").value == FEATURED and _has(at, "Run check") and not _has(at, "Run onboarding check")
-    assert not at.exception
+    assert _has(at, "Run the check") and not _has(at, "Run onboarding check") and not at.exception
+    assert any("Maple Design" in m.value for m in at.markdown)
 
 
 def test_guided_journey_via_clicks_no_duplicates_and_handoff_opens_exact_task():
     at = _at("overview")
-    _btn(at, "Start with Maple Design").click().run()
+    _btn(at, "Start customer onboarding").click().run()
     db = at.session_state["db"]
-    _btn(at, "Run check").click().run()
+    _btn(at, "Run the check").click().run()
     assert db.one("SELECT COUNT(*) n FROM interactions WHERE actor='agent' AND kind='message' AND origin='session'")["n"] == 1
     at.run(); at.run()  # plain reruns send nothing
     assert db.one("SELECT COUNT(*) n FROM interactions WHERE actor='agent' AND kind='message' AND origin='session'")["n"] == 1
-    assert at.session_state["acct"] == FEATURED  # selection survives the first action
+    assert at.session_state["acct"] == FEATURED and at.session_state["guided"] == "onboarding"  # selection and walkthrough survive the first action
+    assert any("What just happened" in m.value for m in at.markdown)
     for _ in range(3):  # directory failing -> clarifying question; authentication error -> docs; tried steps -> handoff
-        _btn(at, "Send reply").click().run()
+        _btn(at, "Send this reply").click().run()
     assert db.one("SELECT COUNT(*) n FROM human_tasks WHERE origin='session'")["n"] == 1
     tid = db.one("SELECT id FROM human_tasks WHERE origin='session'")["id"]
     assert db.one("SELECT state FROM journeys WHERE account_id=? AND product='docs'", (FEATURED,))["state"] == "waiting_for_human"
-    _btn(at, "Open handoff").click().run()  # lands on the queue with Maple's task selected, not another customer's
+    _btn(at, "Open the support task").click().run()  # lands on the queue with Maple's task selected, not another customer's
     assert at.session_state["task"] == tid and at.selectbox(key="w_task").value == tid
     assert any("Maple Design" in m.value for m in at.markdown)
     assert _btn(at, "Resolve task").disabled
@@ -98,8 +99,8 @@ def test_guided_journey_via_clicks_no_duplicates_and_handoff_opens_exact_task():
     assert db.one("SELECT COUNT(*) n FROM agent_runs WHERE trigger='progress_check'")["n"] == 1
     assert db.one("SELECT state FROM journeys WHERE account_id=? AND product='docs'", (FEATURED,))["state"] != "completed"
     _btn(at, "Return to this customer's journey").click().run()
-    assert at.session_state["acct"] == FEATURED and at.selectbox(key="w_acct").value == FEATURED
-    _btn(at, "Send reply").click().run()  # setup complete
+    assert at.session_state["acct"] == FEATURED and at.session_state["guided"] == "onboarding"
+    _btn(at, "Send this reply").click().run()  # setup complete
     assert db.one("SELECT state FROM journeys WHERE account_id=? AND product='docs'", (FEATURED,))["state"] == "completed"
     assert db.one("SELECT COUNT(*) n FROM interactions WHERE actor='agent' AND journey_id IN (SELECT id FROM journeys WHERE account_id=? AND product='support')", (FEATURED,))["n"] == 0
     assert not at.exception, [e.value for e in at.exception]
@@ -113,7 +114,7 @@ def test_queue_defaults_to_selected_task_not_first():
     for text in ("The directory connection is failing.", "We see an authentication error.", "We already tried those instructions."):
         _btn(at, text).click().run()
     tid = db.one("SELECT id FROM human_tasks WHERE origin='session'")["id"]
-    _btn(at, f"Open handoff {tid}").click().run()
+    _btn(at, f"Open support task {tid}").click().run()
     other = db.one("SELECT id FROM human_tasks WHERE origin='seed' AND status!='resolved' ORDER BY priority LIMIT 1")["id"]
     assert at.selectbox(key="w_task").value == tid != other
 
@@ -127,37 +128,72 @@ def test_evaluation_view_stays_after_running_checks():
     assert not at.exception
 
 
-def test_reset_restores_seed_state():
-    at = _at("agent")
-    at.selectbox(key="w_acct").select(FEATURED).run()
-    _btn(at, "Run onboarding check").click().run()
+def test_restart_resets_only_its_own_walkthrough():
+    at = _at("overview")
+    _btn(at, "Start meeting preparation").click().run()
     db = at.session_state["db"]
-    assert db.one("SELECT COUNT(*) n FROM interactions WHERE origin='session'")["n"] > 0
+    _btn(at, "Prepare the brief").click().run()
+    assert db.one("SELECT COUNT(*) n FROM recommendations WHERE account_id='ACC-041' AND origin='session'")["n"] == 1
     _goto(at, "overview")
-    _btn(at, "Start with Maple Design").click().run()
-    db2 = at.session_state["db"]
-    assert db2 is not db and db2.one("SELECT COUNT(*) n FROM interactions WHERE origin='session'")["n"] == 0
+    _btn(at, "Start customer onboarding").click().run()   # starting onboarding must not clear the Northstar recommendation
+    _btn(at, "Run the check").click().run()
+    assert db.one("SELECT COUNT(*) n FROM recommendations WHERE account_id='ACC-041' AND origin='session'")["n"] == 1
+    assert db.one("SELECT COUNT(*) n FROM agent_runs WHERE account_id='ACC-001' AND origin='session'")["n"] == 1
+    _goto(at, "overview")
+    assert _has(at, "Continue where you left off") and _has(at, "Start over")
+    next(b for b in at.button if b.key == "go_onboarding").click().run()  # Start over for Maple only
+    assert db.one("SELECT COUNT(*) n FROM agent_runs WHERE account_id='ACC-001' AND origin='session'")["n"] == 0
+    assert db.one("SELECT COUNT(*) n FROM recommendations WHERE account_id='ACC-041' AND origin='session'")["n"] == 1
+    assert not at.exception
 
 
 def test_account_team_guided_flow_and_accept_does_not_enrol():
     at = _at("overview")
-    _btn(at, "Start with Northstar Retail").click().run()
+    _btn(at, "Start meeting preparation").click().run()
     db = at.session_state["db"]
     assert at.session_state["meeting"] == "MTG-001" and not at.exception
     enrol0 = db.one("SELECT COUNT(*) n FROM learner_records WHERE account_id='ACC-041'")["n"]
-    _btn(at, "Prepare brief").click().run()
+    _btn(at, "Prepare the brief").click().run()
     rec = db.one("SELECT * FROM recommendations WHERE meeting_id='MTG-001'")
     assert rec["status"] == "generated" and rec["generation_mode"] == "demo"
     at.run(); at.run()
     assert db.one("SELECT COUNT(*) n FROM recommendations WHERE meeting_id='MTG-001'")["n"] == 1  # reruns create nothing
-    _btn(at, "Mark reviewed").click().run()
+    _btn(at, "Mark as reviewed").click().run()
     _btn(at, "Edit and accept").click().run()
     now = db.one("SELECT * FROM recommendations WHERE meeting_id='MTG-001'")
     assert now["status"] == "edited" and now["content_original"] != now["content_current"]
     assert db.one("SELECT COUNT(*) n FROM learner_records WHERE account_id='ACC-041'")["n"] == enrol0
     assert db.one("SELECT COUNT(*) n FROM learning_outcomes WHERE origin='session'")["n"] == 0
-    _btn(at, "Mark discussed").click().run()
+    _btn(at, "Mark as discussed").click().run()
     _btn(at, "Simulate enrolment").click().run()
     assert db.one("SELECT status FROM recommendations WHERE meeting_id='MTG-001'")["status"] == "discussed"
     assert db.one("SELECT COUNT(*) n FROM learning_outcomes WHERE origin='session'")["n"] == 1
     assert not at.exception, [e.value for e in at.exception]
+
+
+def test_failed_handoff_is_reported_honestly_and_can_be_retried():
+    at = _at("overview")
+    _btn(at, "Start customer onboarding").click().run()
+    db = at.session_state["db"]
+    _btn(at, "Run the check").click().run()
+    _btn(at, "Send this reply").click().run()
+    _btn(at, "Send this reply").click().run()
+    at.checkbox(key="fault").check().run()          # simulate the ticket system being down
+    _btn(at, "Send this reply").click().run()
+    assert db.one("SELECT COUNT(*) n FROM human_tasks WHERE origin='session'")["n"] == 0
+    assert any("Handoff FAILED" in m.value and "nothing was created" in m.value for m in at.markdown), "the card must say the handoff failed"
+    assert any("did not go through" in m.value for m in at.markdown), "the customer-facing message must not claim success"
+    at.checkbox(key="fault").uncheck().run()        # recover: switch the failure off and retry the same step
+    _btn(at, "Send this reply").click().run()
+    assert db.one("SELECT COUNT(*) n FROM human_tasks WHERE origin='session'")["n"] == 1
+    assert not at.exception
+
+
+def test_every_walkthrough_screen_has_a_role_label_and_next_action():
+    at = _at("overview")
+    _btn(at, "Start customer onboarding").click().run()
+    assert any(m.value.startswith('<div class="cso-role">You are') for m in at.markdown)
+    _goto(at, "overview")
+    _btn(at, "Start meeting preparation").click().run()
+    assert any(m.value.startswith('<div class="cso-role">You are acting as the Account Team') for m in at.markdown)
+    assert _has(at, "Prepare the brief")

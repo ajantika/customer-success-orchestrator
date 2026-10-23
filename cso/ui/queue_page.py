@@ -9,7 +9,7 @@ from .. import rules, services as S, session
 from ..format import status, when
 from ..models import ASSIGNEES, PRODUCT_LABEL
 from ..retrieval import get_retriever
-from . import style
+from . import narrate, style
 
 PRIO = {"high": 0, "medium": 1, "low": 2}
 
@@ -39,8 +39,9 @@ def _resolve(db, tid):
         return
     t = db.one("SELECT journey_id FROM human_tasks WHERE id=?", (tid,))
     j = db.one("SELECT state FROM journeys WHERE id=?", (t["journey_id"],))
-    session.flash("success", f"Support task {tid} is resolved. That is not the same as onboarding being complete: a fresh progress check ran, "
-                             f"and the customer's journey is now “{style.STATE_LABEL_.get(j['state'], j['state'])}”. {res['summary']}")
+    d = narrate.from_run(db, res["run_id"]) if res.get("run_id") else {"found": [], "did": res["summary"], "why": ""}
+    session.record_action(f"Support task {tid} is resolved and the note is saved. The assistant then re-checked the customer's real progress and the journey is now “{style.STATE_LABEL_.get(j['state'], j['state'])}”. {d['did']}",
+                          d["found"], "Resolving a support task is not the same as onboarding being complete, so progress was verified from product events first.", run_id=res.get("run_id"))
 
 
 def _on_task():
@@ -55,8 +56,12 @@ def _back_to_journey(aid, prod):
 def render():
     db = session.get_db()
     session.show_flash()
-    st.title("Human work queue")
-    st.caption("Tasks created by the agent's handoffs. Resolving a task closes the support issue only; onboarding completion is decided from fresh product progress.")
+    st.title("Support tasks")
+    st.caption("Tasks the assistant created when it could not solve a problem. Resolving a task closes the support issue only; onboarding completion is decided from fresh product progress.")
+    style.role_banner("acting as the support specialist.")
+    if st.session_state.get("guided") == "onboarding":
+        st.info("**Walkthrough, step 5 of 6.** Write a short resolution note below (for example, “Re-issued the directory token and verified sync”) and click **Resolve task**. "
+                "The assistant will then re-check Maple's real progress. Afterwards use **Return to this customer's journey**.")
     show = st.multiselect("Status", ["open", "assigned", "in_progress", "resolved"], default=["open", "assigned", "in_progress"], format_func=status)
     sel = st.session_state.get("task")
     rows = db.q("SELECT t.*, a.name FROM human_tasks t JOIN accounts a ON a.id=t.account_id WHERE t.status IN (%s)" % ",".join("?" * len(show)), tuple(show)) if show else []
@@ -104,13 +109,15 @@ def render():
         g = ctx.get("guidance_sent", [])
         if g:
             for m in g:
-                st.markdown(f"- {m['channel'].capitalize()}, {when(m['ts'], False)}: {m['excerpt'][:140]}… _{', '.join(m['docs'])}_")
+                body = m["excerpt"].split("\n\n", 1)[-1] if m["excerpt"].startswith("Subject:") else m["excerpt"]
+                st.markdown(f"- {m['channel'].capitalize()}, {when(m['ts'], False)}: {body[:140].strip()}… _{', '.join(m['docs'])}_")
         else:
             st.markdown("_none captured (seeded task)_")
         with st.expander("Conversation references (message IDs)"):
             refs = ctx.get("conversation_refs", [])
             st.markdown("\n".join(f"- `{r['id']}` {r['from']} via {r['channel']}: {r['excerpt'][:100]}" for r in refs) if refs else "_none captured (seeded task)_")
     if t["status"] == "resolved":
+        session.show_action("Return to the customer's journey to see the result.")
         st.success(f"Resolved {when(t['resolved_at'])}: {t['resolution_note']}")
         st.button("Return to this customer's journey", on_click=_back_to_journey, args=(t["account_id"], t["product"]), key="back_done", type="primary")
         return
@@ -123,8 +130,8 @@ def render():
             st.button("Mark in progress", key=f"st_{sel}", on_click=_start, args=(db, sel))
     with b:
         st.text_area("Resolution note (required)", key=f"note_{sel}", height=90, placeholder="What was fixed and how it was verified")
-        st.checkbox("Demo helper: the fix unblocked the customer's next milestone (creates a synthetic product event)", key=f"fix_{sel}", value=True,
-                    help="Without it, the fresh check finds no new progress and the journey simply resumes monitoring.")
+        st.checkbox("Demo helper: pretend the fix unblocked the customer's next step", key=f"fix_{sel}", value=True,
+                    help="Creates a synthetic product event. Without it, the fresh check finds no new progress and the journey simply resumes monitoring.")
         ok = len(st.session_state.get(f"note_{sel}", "").strip()) >= 10
         st.button("Resolve task", type="primary", key=f"res_{sel}", on_click=_resolve, args=(db, sel), disabled=not ok,
                   help=None if ok else "Enter a resolution note of at least 10 characters.")

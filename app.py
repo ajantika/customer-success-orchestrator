@@ -8,7 +8,7 @@ st.set_page_config(page_title="Customer Success Orchestrator", page_icon=":mater
 from cso import services as S  # noqa: E402
 from cso import session  # noqa: E402
 from cso.llm import DEFAULT_MODEL  # noqa: E402
-from cso.ui import agent_page, config_page, customer, eval_page, nav, overview, queue_page, style, team_page  # noqa: E402
+from cso.ui import help as help_, agent_page, config_page, customer, eval_page, nav, overview, queue_page, style, team_page  # noqa: E402
 
 style.inject()
 db = session.get_db()
@@ -16,9 +16,9 @@ db = session.get_db()
 nav.PAGES.update({
     "overview": st.Page(overview.render, title="Overview", icon=":material/dashboard:", url_path="overview", default=True),
     "customer": st.Page(customer.render, title="Customer workspace", icon=":material/person:", url_path="customer"),
-    "agent": st.Page(agent_page.render, title="Agent workspace", icon=":material/smart_toy:", url_path="agent"),
-    "queue": st.Page(queue_page.render, title="Human work queue", icon=":material/support_agent:", url_path="queue"),
-    "team": st.Page(team_page.render, title="Account Team Assistant", icon=":material/event_note:", url_path="team"),
+    "agent": st.Page(agent_page.render, title="Customer onboarding", icon=":material/smart_toy:", url_path="agent"),
+    "queue": st.Page(queue_page.render, title="Support tasks", icon=":material/support_agent:", url_path="queue"),
+    "team": st.Page(team_page.render, title="Meeting preparation", icon=":material/event_note:", url_path="team"),
     "config": st.Page(config_page.render, title="Journey configuration", icon=":material/tune:", url_path="config"),
     "eval": st.Page(eval_page.render, title="Evaluation", icon=":material/fact_check:", url_path="evaluation"),
 })
@@ -49,13 +49,14 @@ with st.sidebar:
         st.text_input("Model", key="live_model", placeholder=DEFAULT_MODEL)
         if st.session_state.get("use_live") and not session.live_available():
             st.warning("The app stays in Demo mode until a key is available. Nothing is silently simulated as an AI model.")
+    help_.render_guide()
     st.divider()
     st.markdown(f"**Demo clock**  \n{db.now():%a %b %d, %Y %H:%M}")
     st.caption("A pretend calendar so you can see what happens days later.")
     c = st.columns(3)
     for col, d in zip(c, (1, 3, 7)):
         col.button(f"+{d}d", key=f"adv{d}", on_click=_advance, args=(d,), width="stretch")
-    st.button("Reset demo data", on_click=session.reset_demo, width="stretch")
+    st.button("Reset all demo data", on_click=session.reset_demo, width="stretch", help="Resets both walkthroughs and every change. To reset one customer only, use “Restart this walkthrough”.")
     st.divider()
     style.footer_label()
     st.caption("Your changes are private to this session and reset when it ends.")

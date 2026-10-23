@@ -17,7 +17,7 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-No API key is needed. The app starts in **Demo mode**. On the Overview page choose **Start with Maple Design** (onboarding) or **Start with Northstar Retail** (Account Team). Each opens a short guided checklist. Walkthroughs: [Maple Design](docs/DEMO_SCRIPT_MAPLE.md) and [Northstar Retail](docs/DEMO_SCRIPT_NORTHSTAR.md).
+No API key is needed. The app starts in **Demo mode**. On the Overview page choose **Start customer onboarding** or **Start meeting preparation**. Each opens a short guided checklist. The app guides you; written walkthroughs: [Maple Design](docs/DEMO_SCRIPT_MAPLE.md) and [Northstar Retail](docs/DEMO_SCRIPT_NORTHSTAR.md).
 
 ```bash
 pytest                       # workflow checks, tool/rule tests, UI click-through tests, live-adapter tests with a fake client
@@ -51,9 +51,9 @@ The model performs two jobs: it picks which permitted tool to call next and writ
 |---|---|
 | Overview | Two entry points, account and journey counts (with definitions), accounts needing attention, daily scan |
 | Customer workspace | Goal, lifecycle stage, owner, products and rollout plan, milestones, learning progress, upcoming meetings, open issues, contact preferences, timeline, and *why* a customer is or isn't eligible for outreach |
-| Agent workspace | Onboarding agent: inbox, customer replies, "what the agent did" explanation, handoff link |
-| Human work queue | Assign, update and resolve handoffs with a required note; opens on the exact task you came from |
-| **Account Team Assistant** | Simulated upcoming meetings, meeting brief, recommendation card with evidence, accept / edit / dismiss / defer / mark discussed, learning outcomes tracked separately, scenario controls, feedback summary |
+| Customer onboarding | Guided walkthrough with Maple Design: inbox, customer replies, a plain-language "What just happened" card after every action, technical details in an expander |
+| Support tasks | You act as the support specialist: assign, update and resolve handoffs with a required note; opens on the exact task you came from |
+| **Meeting preparation** (Account Team Assistant) | Simulated upcoming meetings, meeting brief, recommendation card with evidence, accept / edit / dismiss / defer / mark discussed, learning outcomes tracked separately, scenario controls, feedback summary |
 | Journey configuration | Eligibility, thresholds, frequency, stopping and escalation rules, team ownership, milestone definitions |
 | Evaluation | Observed session activity, seeded synthetic history, and system evaluation (workflow checks, human ratings), with definitions and denominators |
 
@@ -95,3 +95,7 @@ docs/                   Brief, architecture, decisions, operating model, evaluat
 - Only onboarding, adoption and learning are in scope. The agent cannot change billing, plans or permissions.
 - The Account Team assistant's feedback summary informs roadmap decisions; the assistant does not learn from feedback automatically.
 - Live AI mode is untested against a real model (see above).
+
+## Self-service use
+
+The app is designed so a first-time visitor needs no explanation. The Overview states the purpose, users and the two workflows; each walkthrough opens the right customer, explains the situation in a few sentences, shows progress and one highlighted next action, and names the role you are playing at every step ("You are replying as the customer", "acting as the support specialist", "acting as the Account Team"). Every action produces a *What just happened* card (what was found, what was done, why, what to do next). Each walkthrough ends with a summary and next steps. **Restart this walkthrough** resets only that customer; **Back to overview** leaves the walkthrough; **Reset all demo data** (sidebar) resets everything. Details of what was tested are in [docs/USABILITY_REVIEW.md](docs/USABILITY_REVIEW.md).

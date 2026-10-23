@@ -18,7 +18,7 @@ The Account Team accepts, edits, dismisses (with a reason), defers or marks the 
 Policy in code, not prompts. Two modes with honest labels. Evidence IDs and citation checks so claims are supportable. Human-only review actions and per-workflow tool allow-lists. Stable selection state. Evidence completeness instead of fake confidence scores.
 
 ## What was built and tested
-A seven-page Streamlit app on session-isolated SQLite with 43 synthetic accounts, a fictional training catalog, 16 tools, a deterministic decider and a live decider behind the same tool layer, and an evaluation page that separates observed, seeded and tested results. 59 automated tests pass, including 34 workflow checks and UI click-through tests. See [EVALUATION.md](EVALUATION.md).
+A seven-page Streamlit app on session-isolated SQLite with 43 synthetic accounts, a fictional training catalog, 16 tools, a deterministic decider and a live decider behind the same tool layer, and an evaluation page that separates observed, seeded and tested results. 61 automated tests pass, including 34 workflow checks and UI click-through tests. See [EVALUATION.md](EVALUATION.md).
 
 ## What must be validated before a production rollout
 - Real-model behaviour for both workflows, with human ratings of timing, fit, prerequisite handling and usefulness.

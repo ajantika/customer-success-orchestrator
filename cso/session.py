@@ -11,6 +11,7 @@ import streamlit as st
 from .datagen import NORTHSTAR, build_db
 from .db import DB
 from .llm import DEFAULT_MODEL, get_api_key
+from .restart import restart_workflow
 
 FEATURED = "ACC-001"
 
@@ -38,7 +39,7 @@ def goto(page_key: str):
 
 
 def reset_demo():
-    for k in ("flash", "guided", "last_scan", "reply_text", "sel_run", "task", "meeting", "_latest_run", "tab_agent", "tab_eval", "viewed"):
+    for k in ("flash", "guided", "last_scan", "reply_text", "sel_run", "task", "meeting", "_latest_run", "tab_agent", "tab_eval", "viewed", "last_action", "team_scan", "done_onboarding", "done_team"):
         st.session_state.pop(k, None)
     st.session_state["db"] = build_db()
     select(None, "docs")
@@ -46,20 +47,22 @@ def reset_demo():
     flash("success", "Demo data reset to the seeded state.")
 
 
+def _start(which: str, acct: str, **extra):
+    """Open a walkthrough. Only that walkthrough's customer is restarted; the other workflow keeps its progress."""
+    restart_workflow(get_db(), which)
+    select(acct, "docs", **extra)
+    st.session_state["guided"] = which
+    for k in ("flash", "last_action", "sel_run", "_latest_run", "reply_text", "team_scan", "tab_agent"):
+        st.session_state.pop(k, None)
+    goto("agent" if which == "onboarding" else "team")
+
+
 def start_onboarding_demo():
-    reset_demo()
-    select(FEATURED, "docs")
-    st.session_state["guided"] = "onboarding"
-    st.session_state.pop("flash", None)
-    goto("agent")
+    _start("onboarding", FEATURED)
 
 
 def start_team_demo():
-    reset_demo()
-    select(NORTHSTAR, "docs", meeting="MTG-001")
-    st.session_state["guided"] = "team"
-    st.session_state.pop("flash", None)
-    goto("team")
+    _start("team", NORTHSTAR, meeting="MTG-001")
 
 
 def flash(kind: str, msg: str):
@@ -98,13 +101,39 @@ def mode_hint() -> str:
     return "An AI model chooses tools and writes messages; rules still run in code." if mode() == "live" else "Uses prepared scenarios and rules. No AI model is called."
 
 
+def record_action(did: str, found: list[str] | None = None, why: str = "", tone: str = "success", run_id: str | None = None):
+    """Remember what the last action found, did and why. Shown once, next to the controls."""
+    st.session_state["last_action"] = {"found": found or [], "did": did, "why": why, "tone": tone, "run_id": run_id}
+
+
+def show_action(next_text: str | None = None):
+    a = st.session_state.get("last_action")
+    if not a:
+        return
+    with st.container(border=True):
+        icon = {"success": "✅", "warning": "⚠️", "error": "⛔", "info": "ℹ️"}.get(a["tone"], "✅")
+        st.markdown(f"**{icon} What just happened**")
+        if a["found"]:
+            st.markdown("**What the system found**\n" + "\n".join(f"- {x}" for x in a["found"]))
+        st.markdown(f"**What it did.** {a['did']}")
+        if a["why"]:
+            st.markdown(f"**Why.** {a['why']}")
+        if next_text:
+            st.markdown(f"**What you can do next.** {next_text}")
+        if a["tone"] == "error":
+            st.caption("Nothing was changed by the failed step. Try the action again, or use “Restart this walkthrough” to start clean.")
+
+
 def report_run(res: dict):
-    """Turn an agent run result into a visible message. Errors are never hidden or replaced by scripted output."""
+    """Turn an agent run result into a visible card. Errors are never hidden or replaced by prepared output."""
+    from .ui import narrate
     if res.get("deduplicated"):
-        flash("info", res["summary"])
-    elif res.get("outcome") == "error":
-        flash("error", f"Live AI run failed: {res.get('error')} Your session and data are unchanged by the failed call.")
-    elif res.get("outcome") == "step_limit":
-        flash("warning", "The agent reached its step limit and stopped. " + res["summary"])
+        record_action(res["summary"], tone="info", why="The same action was already done, so nothing was repeated.")
+    elif res.get("run_id"):
+        d = narrate.from_run(st.session_state["db"], res["run_id"])
+        if res.get("outcome") == "error":
+            d["did"] = f"The AI model call failed: {res.get('error')} Your session and data are unchanged by the failed call."
+        record_action(d["did"], d["found"], d["why"], d["tone"], res["run_id"])
     else:
-        flash("success", res["summary"])
+        record_action(res.get("summary", "Done."))
+    st.session_state.pop("flash", None)

@@ -7,6 +7,7 @@ import json
 import streamlit as st
 
 from .. import session
+from ..format import when
 from ..models import PRODUCT_LABEL, STATE_LABEL
 from ..retrieval import get_retriever
 
@@ -40,6 +41,8 @@ h1, h2, h3, h4 { letter-spacing: -0.01em; }
 .cso-mode.scripted { background:#3b3170; color:#d9d3ff; } .cso-mode.live { background:#14523a; color:#9af0c4; }
 .cso-card { border:1px solid var(--line); border-radius:14px; padding:16px 18px; background:rgba(139,140,248,0.06); }
 blockquote { border-left:3px solid var(--brand); color:var(--ink) !important; background:rgba(139,140,248,0.08); padding:8px 14px; border-radius:6px; }
+.cso-role { display:inline-block; padding:6px 12px; border-radius:8px; background:rgba(139,140,248,0.16); border:1px solid #4a47a3; color:#e6e4ff; font-weight:600; margin:6px 0; }
+.cso-hero { font-size:1.15rem; line-height:1.55; }
 .cso-kpi { font-size:0.8rem; text-transform:uppercase; letter-spacing:0.06em; color:var(--muted); }
 </style>
 """
@@ -98,7 +101,7 @@ def bubble(row: dict):
         subject, _, body = body.partition("\n\n")
         subject = subject[9:]
     ch = row["channel"] if row["channel"] in ("email", "chat") else ""
-    ts = row["ts"].replace("T", " ")[:16]
+    ts = when(row["ts"])
     meta = f"{who} · {ch} · {ts}" if ch else f"{who} · {ts}"
     subj = f"<div style='font-weight:600;margin-bottom:4px'>{html.escape(subject)}</div>" if subject else ""
     st.markdown(f'<div class="cso-msg {cls}"><div class="meta">{html.escape(meta)}</div>{subj}{_fmt(body)}</div>', unsafe_allow_html=True)
@@ -146,3 +149,8 @@ def account_picker(db, with_product: bool = True) -> tuple[str | None, str | Non
 
 def footer_label():
     st.caption("Independent portfolio prototype • Synthetic customer data")
+
+
+def role_banner(text: str):
+    """Tell the visitor which person they are playing right now."""
+    st.markdown(f'<div class="cso-role">You are {html.escape(text)}</div>', unsafe_allow_html=True)

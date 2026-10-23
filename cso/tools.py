@@ -394,7 +394,7 @@ def create_handoff(ctx: ToolContext, a: HandoffIn) -> HandoffOut:
         db.insert("support_cases", id=case_id, account_id=a.account_id, product=j["product"], subject=a.issue, category=a.category,
                   status="open", blocking=1, created_at=to_iso(db.now()))
     msgs = db.q("SELECT id, actor, channel, ts, body, signals FROM interactions WHERE account_id=? AND kind='message' ORDER BY rid DESC LIMIT 8", (a.account_id,))[::-1]
-    guidance = [{"id": m["id"], "ts": m["ts"], "channel": m["channel"], "excerpt": m["body"][:240],
+    guidance = [{"id": m["id"], "ts": m["ts"], "channel": m["channel"], "excerpt": m["body"][:400],
                  "docs": json.loads(m["signals"]).get("guidance_docs", [])} for m in msgs if m["actor"] == "agent"]
     acc = db.one("SELECT name, goal FROM accounts WHERE id=?", (a.account_id,))
     attempted = sorted(set(a.attempted_doc_ids) | set(json.loads(j["attempted_docs"])))
@@ -734,7 +734,7 @@ def build_evidence(ctx: ToolContext, name: str, args, out) -> list[dict]:
     elif name == "get_learning_progress":
         items = [(out.note + (f" {out.learner_count} learners on record." if out.has_records else ""), "learning_records", out.records_updated_at)]
     elif name == "get_account_blockers":
-        items = [(f"{len(out.open_cases)} open case(s), {len(out.open_tasks)} open task(s); rollout started: {all(r['started'] for r in out.rollouts) if out.rollouts else 'no plan'}",
+        items = [(f"{len(out.open_cases)} open case(s), {len(out.open_tasks)} open task(s); rollout started: {('yes' if all(r['started'] for r in out.rollouts) else 'not yet') if out.rollouts else 'no plan on file'}",
                   "support_and_rollout", now)]
     elif name == "check_support_cases":
         items = [(f"{len(out.open_cases)} open case(s), {len(out.open_tasks)} open task(s)", "support_and_rollout", now)]

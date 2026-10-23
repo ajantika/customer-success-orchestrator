@@ -8,7 +8,7 @@ import streamlit as st
 from .. import rules, session, team
 from ..format import status, when
 from ..tools import DISMISS_REASONS, REVIEWERS
-from . import style
+from . import narrate, style, walkthroughs
 
 NORTHSTAR_MEETING = "MTG-001"
 ACTION_LABEL = {"training": "Learning recommendation", "technical_followup": "Technical follow-up first", "timing": "Timing: wait", "clarify": "Ask a clarifying question",
@@ -34,14 +34,15 @@ def _prepare(db, mid):
             team.view_brief(db, mid, st.session_state["reviewer"])
         session.report_run(res)
     except Exception as e:
-        session.flash("error", f"Something went wrong: {type(e).__name__}: {e}")
+        session.record_action(f"Something went wrong: {type(e).__name__}: {e}", tone="error")
 
 
 def _scan(db):
     rows = team.scan_upcoming(db, 7)
     st.session_state["team_scan"] = rows
     new = sum(r["New recommendation"] == "Yes" for r in rows)
-    session.flash("success", f"Scanned {len(rows)} meeting(s) in the next 7 days: {new} new recommendation(s) for review. Nothing was sent to any customer.")
+    session.record_action(f"Scanned {len(rows)} meeting(s) in the next 7 days and saved {new} new recommendation(s) for review. Nothing was sent to any customer.",
+                          why="Scanning is an explicit action; nothing runs in the background. Running it again creates no duplicates.")
 
 
 def _act(db, rec_id, action, reason=None, note=None, revised=None, defer_days=None):
@@ -52,9 +53,13 @@ def _act(db, rec_id, action, reason=None, note=None, revised=None, defer_days=No
         until = to_iso(db.now() + timedelta(days=int(defer_days)))
     res = team.review(db, rec_id, action, st.session_state["reviewer"], reason, note, revised, until)
     if res["ok"]:
-        session.flash("success", f"Recommendation {rec_id} marked {status(action).lower()}." + (" Accepting it does not enroll anyone or promise anything to the customer." if action == "accepted" else ""))
+        extra = {"accepted": " Accepting means you agree it is worth raising. It was not sent to the customer and nobody was enrolled.",
+                 "edited": " Your edit is saved next to the original, which is kept unchanged.", "discussed": " This records that you raised it. It does not mean the customer did anything.",
+                 "dismissed": " The assistant will not suggest the same thing again for this meeting.", "deferred": " It stays saved and is not re-suggested until you revisit it.",
+                 "reviewed": ""}[action]
+        session.record_action(f"Recommendation {rec_id} is now **{status(action).lower()}**.{extra}", why=f"Recorded as {st.session_state['reviewer']}'s decision with the time and reason in the review history below. It also feeds the feedback summary and the Evaluation page.")
     else:
-        session.flash("warning", res["error"]["message"])
+        session.record_action(res["error"]["message"], tone="warning")
 
 
 def _edit(db, rec_id):
@@ -72,14 +77,15 @@ def _defer(db, rec_id):
 
 def _learning(db, rec_id, stage):
     n = team.simulate_learning(db, rec_id, stage, 2)
-    session.flash("success" if n else "info", f"Synthetic update: {n} learner(s) {stage}. This is the customer's progress, tracked separately from the Account Team's decision." if n else "No learners could be updated.")
+    session.record_action(f"Synthetic update: {n} learner(s) {stage}. This is the customer's own progress, tracked separately from your decision." if n else "No learners could be updated for this step.",
+                          why="Accepting a recommendation never enrols anyone. This button only simulates what a customer might do afterwards." if n else "", tone="success" if n else "info")
 
 
 def _scenario(db):
     label = team.apply_scenario(db, st.session_state["scn"])
     st.session_state["meeting"] = team.NS_MEETING
     session.select(team.NORTHSTAR, "docs")
-    session.flash("info", f"Scenario applied: {label}. Click “Prepare meeting brief” to see how the assistant responds.")
+    session.record_action(f"Situation applied: {label}. Northstar's synthetic data was reshaped.", why="Click “Prepare meeting brief” to see how the assistant responds to this situation.", tone="info")
 
 
 def _guided_edit(db, rec):
@@ -93,33 +99,24 @@ def _exit_guided():
 
 
 # ----------------------------------------------------------------- pieces ---
-def _guided(db):
+def _steps(db):
     rec = team.latest_rec(db, NORTHSTAR_MEETING)
     fb = lambda a: db.one("SELECT COUNT(*) n FROM rec_feedback WHERE meeting_id=? AND action=?", (NORTHSTAR_MEETING, a))["n"] > 0
-    steps = [
-        ("Prepare the meeting brief", "The assistant gathers the meeting purpose, usage, learning progress and blockers, then saves a recommendation for review.", rec is not None,
-         "Prepare brief", lambda: _prepare(db, NORTHSTAR_MEETING)),
-        ("Review the evidence", "Check what the recommendation is based on, and what is still unknown.", fb("reviewed"),
-         "Mark reviewed", lambda: _act(db, rec["id"], "reviewed") if rec else None),
-        ("Edit the talking point and accept", "Your edit is saved next to the original so a product owner can see what changed.", fb("edited") or fb("accepted"),
-         "Edit and accept", lambda: _guided_edit(db, rec) if rec else None),
-        ("Mark as discussed after the meeting", "Discussed is separate from the customer enrolling in anything.", fb("discussed"),
-         "Mark discussed", lambda: _act(db, rec["id"], "discussed") if rec else None),
-        ("Record the customer's learning separately", "Accepting a recommendation never enrolls anyone. This synthetic update shows the customer's own progress.",
-         db.one("SELECT COUNT(*) n FROM learning_outcomes WHERE origin='session'")["n"] > 0, "Simulate enrolment", lambda: _learning(db, rec["id"], "enrolled") if rec else None),
+    role = "acting as the Account Team."
+    need = None if rec else "Prepare the brief first (step 1)."
+    return [
+        dict(title="Prepare the meeting brief", why="The assistant gathers the meeting purpose, usage, learning progress and blockers, then saves one recommendation for you to review.", role=role,
+             done=rec is not None, label="Prepare the brief", action=lambda: _prepare(db, NORTHSTAR_MEETING)),
+        dict(title="Review the evidence", why="Read the recommendation, its sources and what is still unknown. Marking it reviewed records that a person looked at it.", role=role,
+             done=fb("reviewed"), label="Mark as reviewed", action=lambda: _act(db, rec["id"], "reviewed") if rec else None, disabled_reason=need),
+        dict(title="Edit the talking point and accept", why="To keep the demo short this button applies a small example edit. Normally you would type your own under “Edit”. The original wording is kept.", role=role,
+             done=fb("edited") or fb("accepted"), label="Edit and accept", action=lambda: _guided_edit(db, rec) if rec else None, disabled_reason=need),
+        dict(title="Mark it discussed after the meeting", why="“Discussed” means you raised it with the customer. It is separate from anything the customer does.", role=role,
+             done=fb("discussed"), label="Mark as discussed", action=lambda: _act(db, rec["id"], "discussed") if rec else None, disabled_reason=need),
+        dict(title="See the customer's learning tracked separately", why="Accepting a recommendation never enrols anyone. This synthetic button shows what customer progress could look like afterwards.",
+             role="simulating the customer's learning progress (synthetic).", done=db.one("SELECT COUNT(*) n FROM learning_outcomes WHERE origin='session'")["n"] > 0,
+             label="Simulate enrolment", action=lambda: _learning(db, rec["id"], "enrolled") if rec else None, disabled_reason=need),
     ]
-    cur = next((i for i, s in enumerate(steps) if not s[2]), None)
-    with st.container(border=True):
-        if cur is None:
-            st.progress(1.0, text="Guided demo complete · 5 of 5 steps")
-            st.success("The recommendation went from generated to discussed with a human in the loop. Try “Try other situations” below, or open the Evaluation page.")
-        else:
-            title, why, _, label, action = steps[cur]
-            st.progress(sum(s[2] for s in steps) / len(steps), text=f"Guided demo · step {cur + 1} of {len(steps)}")
-            c1, c2 = st.columns([5, 2])
-            c1.markdown(f"**Next: {title}**  \n<span class='cso-strip'>{why}</span>", unsafe_allow_html=True)
-            c2.button(label, key=f"tg_{cur}", type="primary", on_click=action, width="stretch", disabled=(cur > 0 and rec is None))
-        st.button("Leave the guided demo", on_click=_exit_guided, key="tg_exit")
 
 
 def _signals(db, aid):
@@ -154,11 +151,16 @@ def _rec_card(db, rec, m):
         if rec["needs_refresh"]:
             st.warning("The meeting date changed after this was generated. Click “Prepare meeting brief” to refresh it.")
         st.caption("Review required. Nothing is shared with the customer, no one is enrolled and nothing is purchased by accepting this.")
-        st.markdown(f"#### {rec['title']}")
-        st.markdown(f"**Why it matters now.** {rec['why_now']}")
-        st.markdown(f"**Customer goal it supports.** {rec['goal'] or 'Not recorded'}")
+        st.markdown("#### Meeting brief")
+        st.markdown(f"**Customer goal.** {rec['goal'] or 'Not recorded'}")
+        sig = [e["label"] for e in evidence if e["source"] in ("product_usage", "learning_records", "support_and_rollout")]
+        st.markdown("**Relevant signals**\n" + ("\n".join(f"- {x}" for x in sig) if sig else "- No usage, learning or support data was available."))
+        st.markdown(f"**Suggested next step.** {rec['title']}")
+        st.markdown(f"**Why now.** {rec['why_now']}")
         st.markdown("**Suggested talking point**")
         st.markdown(f"> {rec['talking_point']}")
+        unk0 = json.loads(rec["unknowns"] or "[]")
+        st.markdown("**Sources and important unknowns.** " + f"{len(evidence)} source(s) listed below under “Supporting evidence”. " + ("Still to confirm: " + "; ".join(unk0) + "." if unk0 else ""))
         if courses:
             st.markdown("**Suggested training**")
             for c in courses:
@@ -170,10 +172,7 @@ def _rec_card(db, rec, m):
         lg = json.loads(rec["learner_group"] or "{}").get("summary")
         if lg:
             st.markdown(f"**Learner group.** {lg}")
-        unk = json.loads(rec["unknowns"] or "[]")
-        if unk:
-            st.markdown("**Confirm with the customer**\n" + "\n".join(f"- {u}" for u in unk))
-        with st.expander("Meeting brief", expanded=True):
+        with st.expander("Full brief text"):
             st.write(rec["brief"])
         with st.expander(f"Supporting evidence ({len(evidence)})"):
             if evidence:
@@ -203,6 +202,9 @@ def _actions(db, rec):
         st.info(f"Dismissed ({(fb or {}).get('reason') or 'no reason recorded'}). The assistant will not recommend it again for this meeting.")
         return
     st.markdown("**Your review**")
+    style.role_banner("acting as the Account Team.")
+    st.caption("**Accept** = you agree it is worth raising (nothing is sent to the customer and nobody is enrolled). **Edit** = change the wording; the original is kept. "
+               "**Dismiss** = not useful, with a reason. **Defer** = not now, with a reason. **Mark discussed** = you raised it with the customer.")
     cols = st.columns(5)
     if st_ == "generated":
         cols[0].button("Mark reviewed", key=f"rv_{rid}", on_click=_act, args=(db, rid, "reviewed"), width="stretch")
@@ -246,43 +248,56 @@ def _outcomes(db, rec):
 # ------------------------------------------------------------------- page ---
 def render():
     db = session.get_db()
-    st.title("Account Team Assistant")
-    st.caption("For Account Executives and Solutions Architects preparing for a customer conversation. The assistant combines the customer's goal, product usage, "
-               "learning progress and training options into a brief. Every recommendation needs a human review.")
+    guided = st.session_state.get("guided") == "team"
+    st.title("Meeting preparation" if guided else "Account Team Assistant")
     st.session_state.setdefault("reviewer", "Riley Chen")
+    steps = _steps(db) if guided else None
+    cur = walkthroughs.panel("team", steps) if guided else None
+    if guided:
+        st.session_state["meeting"] = NORTHSTAR_MEETING
+        session.select("ACC-041", "docs")
+    else:
+        st.caption("For Account Executives and Solutions Architects preparing for a customer conversation. The assistant combines the customer's goal, product usage, "
+                   "learning progress and training options into a brief. Every recommendation needs a human review.")
     st.session_state["w_reviewer"] = st.session_state["reviewer"]
-    st.selectbox("Reviewing as (synthetic identity)", REVIEWERS, key="w_reviewer", on_change=_on_reviewer)
-    if st.session_state.get("guided") == "team":
-        _guided(db)
+    with st.expander("Reviewing as (synthetic identity)", expanded=False):
+        st.selectbox("Reviewer", REVIEWERS, key="w_reviewer", on_change=_on_reviewer)
     session.show_flash()
+    nxt = (steps[cur]["title"] + f" (you are {steps[cur]['role'].rstrip('.')})") if guided and cur is not None else (
+        "Review the recommendation below." if not guided else "Read the summary below, then choose what to explore next.")
+    session.show_action(nxt)
+    if guided and cur is None:
+        walkthroughs.summary_team(db)
 
     meetings = db.q("SELECT m.*, a.name, a.lifecycle FROM meetings m JOIN accounts a ON a.id=m.account_id WHERE m.starts_at>=? AND m.starts_at<=? ORDER BY m.starts_at",
                     (team.to_iso(db.now() - team.timedelta(days=1)), team.to_iso(db.now() + team.timedelta(days=14))))
-    st.markdown("### Upcoming meetings")
-    c1, c2 = st.columns([4, 2])
-    c1.caption("Simulated calendar for the next 14 days (no real calendar or CRM connection).")
-    c2.button("Scan upcoming meetings", on_click=_scan, args=(db,), width="stretch", disabled=session.mode() == "live",
-              help="Prepares briefs for every scheduled meeting in the next 7 days, using prepared rules. Disabled with an AI model so one click cannot trigger many paid calls." if session.mode() == "live"
-              else "Prepares briefs for every scheduled meeting in the next 7 days. Nothing runs in the background; this is an explicit action.")
     if not meetings:
         st.info("No meetings in the next 14 days.")
         return
     recs = {m["id"]: team.latest_rec(db, m["id"]) for m in meetings}
-    st.dataframe(pd.DataFrame([{"Date": when(m["starts_at"]), "Customer": m["name"], "Owner": m["owner"], "Solutions architect": m["solutions_architect"], "Stage": (m["lifecycle"] or "").capitalize(),
-                                "Purpose": m["purpose"], "Meeting": status(m["status"]), "Recommendation": status(recs[m["id"]]["status"]) if recs[m["id"]] else "Not prepared"} for m in meetings]),
-                 hide_index=True, width="stretch", height=min(380, 40 + 36 * len(meetings)))
-    if st.session_state.get("team_scan"):
-        with st.expander("Last scan result"):
+    table = pd.DataFrame([{"Date": when(m["starts_at"]), "Customer": m["name"], "Owner": m["owner"], "Solutions architect": m["solutions_architect"], "Stage": (m["lifecycle"] or "").capitalize(),
+                           "Purpose": m["purpose"], "Meeting": status(m["status"]), "Recommendation": status(recs[m["id"]]["status"]) if recs[m["id"]] else "Not prepared"} for m in meetings])
+    cfg = {"Purpose": st.column_config.TextColumn(width="large"), "Customer": st.column_config.TextColumn(width="medium"), "Date": st.column_config.TextColumn(width="medium")}
+    with st.expander("All upcoming meetings (simulated calendar, next 14 days)", expanded=not guided):
+        c1, c2 = st.columns([4, 2])
+        c1.caption("No real calendar or CRM connection. Click a meeting in the selector below to open its brief.")
+        c2.button("Scan upcoming meetings", on_click=_scan, args=(db,), width="stretch", disabled=session.mode() == "live",
+                  help="Prepares briefs for every scheduled meeting in the next 7 days. Nothing runs in the background; this is an explicit action." if session.mode() != "live"
+                  else "Disabled with an AI model so one click cannot trigger many paid calls.")
+        st.dataframe(table, hide_index=True, width="stretch", height=min(380, 40 + 36 * len(meetings)), column_config=cfg)
+        if st.session_state.get("team_scan"):
+            st.markdown("**Last scan**")
             st.dataframe(pd.DataFrame(st.session_state["team_scan"]).drop(columns=["meeting_id"]).assign(Date=lambda d: d["Date"].map(when)), hide_index=True, width="stretch")
-
-    ids = [m["id"] for m in meetings]
-    sel = st.session_state.get("meeting")
-    if sel not in ids:
-        sel = ids[0]
-        st.session_state["meeting"] = sel
-    st.session_state["w_meeting"] = sel
-    names = {m["id"]: f"{when(m['starts_at'], False)} · {m['name']} · {m['purpose'][:60]}" for m in meetings}
-    st.selectbox("Meeting", ids, format_func=names.get, key="w_meeting", on_change=_on_meeting)
+        ids = [m["id"] for m in meetings]
+        sel = st.session_state.get("meeting")
+        if sel not in ids:
+            sel = ids[0]
+            st.session_state["meeting"] = sel
+        st.session_state["w_meeting"] = sel
+        names = {m["id"]: f"{when(m['starts_at'], False)} · {m['name']} · {m['purpose'][:60]}" for m in meetings}
+        if not guided:
+            st.selectbox("Meeting", ids, format_func=names.get, key="w_meeting", on_change=_on_meeting)
+    sel = st.session_state.get("meeting") if st.session_state.get("meeting") in [m["id"] for m in meetings] else meetings[0]["id"]
     m = next(x for x in meetings if x["id"] == sel)
     session.select(m["account_id"])
     roles = ", ".join(json.loads(m["attendee_roles"]))
@@ -297,17 +312,21 @@ def render():
     _signals(db, m["account_id"])
 
     if m["status"] != "scheduled":
-        st.warning("This meeting is cancelled. Pending recommendations were withdrawn and no new meeting-specific prompts are created.")
-    st.button("Prepare meeting brief", type="primary", on_click=_prepare, args=(db, sel), disabled=m["status"] != "scheduled",
-              help="The assistant gathers evidence with its tools and saves a recommendation for your review. Nothing is sent to the customer.")
+        st.warning("This meeting is cancelled. Pending recommendations were withdrawn and no new meeting-specific prompts are created. Use “Try other situations” to put it back.")
+    if not guided or recs.get(sel) is None:
+        style.role_banner("acting as the Account Team.")
+        st.button("Prepare meeting brief", type="primary", on_click=_prepare, args=(db, sel), disabled=m["status"] != "scheduled", key="prep_main",
+                  help="The assistant gathers evidence with its tools and saves a recommendation for your review. Nothing is sent to the customer."
+                  if m["status"] == "scheduled" else "The meeting is cancelled, so no brief can be prepared.")
+    elif not guided:
+        st.button("Refresh the brief", on_click=_prepare, args=(db, sel), key="prep_again")
     rec = recs.get(sel)
     if rec:
         _rec_card(db, rec, m)
     else:
         st.info("No brief yet. Click “Prepare meeting brief”.")
-
     with st.expander("Try other situations (changes Northstar Retail's synthetic data)"):
-        st.caption("Each choice reshapes Northstar's data, then you click “Prepare meeting brief” to see the assistant respond. Resetting the demo restores the original.")
+        st.caption("Each choice reshapes Northstar's data, then you click “Prepare meeting brief” to see the assistant respond. “Restart this walkthrough” restores the original.")
         st.selectbox("Situation", list(team.SCENARIOS), format_func=team.SCENARIOS.get, key="scn")
         st.button("Apply situation", on_click=_scenario, args=(db,))
     with st.expander("Feedback summary (what reviewers are telling the product team)"):
