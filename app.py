@@ -1,4 +1,4 @@
-"""Customer Success Orchestrator - an independent portfolio prototype with synthetic data."""
+"""Customer Success Orchestrator - an independent portfolio prototype with sample data."""
 from __future__ import annotations
 
 import streamlit as st
@@ -34,7 +34,7 @@ if target and nav.PAGES[target].url_path != pg.url_path:
 
 def _advance(days):
     S.advance_clock(db, days=days)
-    session.record_action(f"The demo clock moved forward {days} day(s). Anything scheduled for later can now come due.", tone="info")
+    session.record_action(f"The demo clock moved forward {days} day(s). Anything scheduled for later can now come due.", tone="info", scope=("overview", "agent", "team"))
 
 
 def _ai_settings():

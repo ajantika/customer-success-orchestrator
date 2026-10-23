@@ -18,7 +18,7 @@ def _scan(db):
     st.session_state["last_scan"] = rows
     sent = sum(r["Message sent"] == "Yes" for r in rows)
     session.record_action(f"Checked {len(rows)} journeys and sent {sent} message(s); {len(rows) - sent} were held back by the rules.",
-                          why="Most customers should not be contacted: their rollout is later, they are progressing, or a frequency limit applies.")
+                          why="Most customers should not be contacted: their rollout is later, they are progressing, or a frequency limit applies.", scope=("overview",))
 
 
 def _continue(which: str):
@@ -69,7 +69,7 @@ def render():
               "Northstar Retail needs help adopting a shared workflow. Review a meeting summary, suggested training, and useful talking points.",
               "Explore meeting preparation", session.start_team_demo)
     help_.render_guide(expanded=False)
-    session.show_action()
+    session.show_action("overview")
     with st.expander("About this demo"):
         st.markdown(
             "This is a **simulation of an agent workflow**. The assistant follows prepared scenarios and rules, and **no AI model is called**. "

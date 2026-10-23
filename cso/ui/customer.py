@@ -12,6 +12,11 @@ from ..models import PRODUCT_LABEL, STATE_LABEL
 from . import style
 
 
+def _open_setup(aid):
+    session.select(aid, st.session_state.get("prod"))
+    session.goto("agent")
+
+
 def _open_meeting(mid, aid):
     session.select(aid, None, meeting=mid)
     session.goto("team")
@@ -54,7 +59,7 @@ def render():
         with st.container(border=True):
             h1, h2 = st.columns([3, 2])
             h1.markdown(f"**{PRODUCT_LABEL[p]}** &nbsp; {style.badge(j['state'])}", unsafe_allow_html=True)
-            h2.caption(f"{pr['done_count']} of {pr['total']} milestones · {usage} usage sessions in the last 14 days (synthetic)")
+            h2.caption(f"{pr['done_count']} of {pr['total']} milestones · {usage} usage sessions in the last 14 days (sample data)")
             st.progress(pr["done_count"] / pr["total"] if pr["total"] else 0)
             st.markdown("  \n".join(f"{'✅' if m['done'] else '⬜'} {m['customer_label']}" + (f" _({when(m['done_at'], False)})_" if m["done"] else "") for m in pr["milestones"]))
             el = rules.evaluate_outreach(db, j["id"])
@@ -79,7 +84,7 @@ def render():
     learn = db.q("SELECT l.course_id, c.title, c.paid, l.status, COUNT(*) n FROM learner_records l JOIN courses c ON c.id=l.course_id WHERE l.account_id=? GROUP BY l.course_id, l.status ORDER BY l.course_id", (aid,))
     if learn:
         st.markdown("### Learning progress")
-        st.caption("Synthetic learner records. They show who has taken which course; they do not prove a skills gap or a need.")
+        st.caption("Sample learner records. They show who has taken which course; they do not prove a skills gap or a need.")
         pivot = pd.DataFrame(learn).pivot_table(index="title", columns="status", values="n", fill_value=0, aggfunc="sum")
         pivot.columns = [status(c) for c in pivot.columns]
         st.dataframe(pivot, width="stretch")
@@ -100,13 +105,19 @@ def render():
     st.dataframe(pd.DataFrame(ct), hide_index=True, width="stretch")
 
     st.markdown("### Unified timeline")
-    f = st.multiselect("Show", ["customer", "agent", "human", "system"], default=["customer", "agent", "human", "system"], key="tl_filter")
-    items = db.q("SELECT * FROM interactions WHERE account_id=? ORDER BY rid DESC LIMIT 150", (aid,))
-    items = [i for i in items if i["actor"] in f]
+    st.caption("See this customer's messages, support updates, and setup progress in one place.")
+    LABELS = {"customer": "Customer", "agent": "Assistant", "human": "Support team", "system": "System"}
+    keep = st.multiselect("Show activity from", list(LABELS), default=list(LABELS), format_func=LABELS.get, key="tl_filter")
+    items = db.q("SELECT * FROM interactions WHERE account_id=? ORDER BY rid DESC LIMIT 200", (aid,))
     if not items:
-        st.info("No activity yet. Run the onboarding check on the Agent workspace.")
+        st.info(f"No activity yet for {acc['name']}. Check their setup to begin.")
+        st.button("Check this customer's setup", on_click=_open_setup, args=(aid,), key="tl_setup", type="primary")
+        return
+    shown = [i for i in items if i["actor"] in keep]
+    if not shown:
+        st.caption("Nothing matches the selected filters.")
     with st.container(height=480):
-        for i in items:
+        for i in shown:
             style.bubble(i)
-        if any(i["origin"] == "seed" for i in items):
-            st.caption("Entries from before this session are seeded synthetic history.")
+        if any(i["origin"] == "seed" for i in shown):
+            st.caption("Entries from before this session are sample history.")

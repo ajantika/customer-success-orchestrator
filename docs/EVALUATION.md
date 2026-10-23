@@ -6,7 +6,7 @@
 | Layer | Status |
 |---|---|
 | Workflow behaviour: rules, tools, state, idempotency, isolation, review workflow | **Evaluated**: 35 deterministic checks, each on a fresh seeded database |
-| Navigation and selection (customer stays selected, guided demos open the right customer and task, evaluation view stays selected) | **Evaluated** with Streamlit AppTest clicks (19 UI tests) |
+| Navigation and selection (customer stays selected, guided demos open the right customer and task, evaluation view stays selected) | **Evaluated** with Streamlit AppTest clicks (19 UI tests and 11 customer-context regression tests) |
 | Optional model-backed adapter (hidden in the demo): tool loop, errors, step limit, account boundary | **Evaluated with a fake provider client** (4 tests, no network) |
 | Behaviour of a real language model | **Not evaluated and not demonstrated.** The demo is a simulation using prepared scenarios and rules |
 | Language quality of messages and recommendations | **Not evaluated.** The app records human 1-5 ratings; none are recorded in this repository |
@@ -59,7 +59,7 @@ Each workflow check builds a new seeded database, drives the real services and t
 **35 of 35 passed.**
 
 ## Results: full test suite
-`pytest` → **64 passed**: 41 in `tests/test_workflows.py` (35 workflow cases and 6 supporting tests: seed determinism and size, transition table, invalid or injected tool input, completion needs progress evidence, tool schema set, retrieval ranking and off-topic fallback), 19 in `tests/test_ui.py`, 4 in `tests/test_live_adapter.py`.
+`pytest` → **75 passed**: 41 in `tests/test_workflows.py` (35 workflow cases and 6 supporting tests: seed determinism and size, transition table, invalid or injected tool input, completion needs progress evidence, tool schema set, retrieval ranking and off-topic fallback), 19 in `tests/test_ui.py`, 11 in `tests/test_customer_context.py`, 4 in `tests/test_live_adapter.py`.
 
 The UI tests cover: every page renders; the selected customer and product survive an action and navigation between pages; Customer and Agent pages show the same customer; the Maple guided demo opens the right customer; the full guided journey by clicks (plain reruns send nothing, the handoff link opens the exact task, a resolution note is required, resolving does not complete onboarding, return-to-journey works); the queue does not default to another customer's task; the Evaluation view stays selected after running checks and shows the result; restarting one walkthrough keeps the other's progress; accepting after an edit is recorded explicitly and the review message follows the status; a typed completion claim without product events keeps the journey open; reviewer-only features are hidden by default; a failed handoff is reported honestly and can be retried; every walkthrough screen names the role you are playing; the Northstar guided flow (reruns create nothing, edit preserves the original, accepting creates no enrolment or outcome).
 

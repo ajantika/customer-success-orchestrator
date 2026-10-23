@@ -215,8 +215,9 @@ def set_journey_state(db: DB, journey_id: str, new: str, reason: str, **extra) -
     if new == "completed":
         vals["completed_at"] = to_iso(db.now())
     db.update("journeys", journey_id, **vals)
+    from .models import PRODUCT_LABEL
     db.timeline(j["account_id"], "system", "tool_action",
-                f"Journey {j['product']}: {STATE_LABEL[j['state']]} -> {STATE_LABEL[new]} ({reason})", journey_id)
+                f"{PRODUCT_LABEL[j['product']]} setup status changed from “{STATE_LABEL[j['state']]}” to “{STATE_LABEL[new]}” ({reason.replace('_', ' ')}).", journey_id)
     return True, None
 
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 import uuid
 
 import pandas as pd
@@ -8,7 +9,7 @@ import streamlit as st
 
 from .. import rules, services as S, session
 from ..format import status, when
-from ..models import PRODUCT_LABEL
+from ..models import PRODUCT_LABEL, STATE_LABEL
 from .. import flags
 from . import narrate, style, walkthroughs
 
@@ -32,10 +33,19 @@ def _check(db, aid, jid):
     try:
         session.report_run(S.run_onboarding_check(db, aid, jid, session.mode(), session.llm_settings()))
     except Exception as e:  # keep the session alive on unexpected failures
-        session.record_action(f"Something went wrong: {type(e).__name__}: {e}", tone="error")
+        session.record_action(f"Something went wrong: {type(e).__name__}: {e}", tone="error", scope=("agent",))
+
+
+DEBOUNCE_S = 2.0  # the same reply clicked again within this many seconds is treated as an accidental double click
 
 
 def _reply(db, aid, jid, prod, text, complete=False, sid=None):
+    now = time.monotonic()
+    last = st.session_state.get("_last_reply")
+    if last and last[0] == (jid, text) and now - last[1] < DEBOUNCE_S:
+        session.record_action("That reply was just sent, so it was not processed twice.", tone="info", scope=("agent",))
+        return
+    st.session_state["_last_reply"] = ((jid, text), now)
     try:
         if complete:
             S.simulate_setup_complete(db, aid, prod)
@@ -43,9 +53,9 @@ def _reply(db, aid, jid, prod, text, complete=False, sid=None):
                                                      sid or uuid.uuid4().hex))
         st.session_state["nonce"] += 1
     except ValueError as e:
-        session.record_action(str(e), tone="warning")
+        session.record_action(str(e), tone="warning", scope=("agent",))
     except Exception as e:
-        session.record_action(f"Something went wrong: {type(e).__name__}: {e}", tone="error")
+        session.record_action(f"Something went wrong: {type(e).__name__}: {e}", tone="error", scope=("agent",))
 
 
 def _send_typed(db, aid, jid, prod):
@@ -61,7 +71,7 @@ def _pending(db):
     res = S.run_pending_actions(db, session.mode(), session.llm_settings())
     session.record_action(f"Ran {len(res)} scheduled action(s): " + "; ".join(r["result"][:80] for r in res[:3]) if res else
                           "Nothing is due at the current demo date. Use +1d, +3d or +7d in the sidebar to move the demo clock forward, then try again.",
-                          why="Reminders only run when they are due.", tone="success" if res else "info")
+                          why="Reminders only run when they are due.", tone="success" if res else "info", scope=("agent",))
 
 
 def _toggle_fault(db):
@@ -73,8 +83,7 @@ def _channel():
 
 
 def _open_handoff(task_id: str):
-    st.session_state["task"] = task_id
-    session.goto("queue")
+    session.open_task(task_id)
 
 
 # ----------------------------------------------------------------- guided ---
@@ -137,35 +146,35 @@ def _details(db, aid):
 
 def render():
     db = session.get_db()
+    if st.session_state.get("guided") == "onboarding" and st.session_state.get("acct") != FEATURED:
+        st.session_state.pop("guided", None)       # never force the walkthrough's customer back onto someone who chose another
     guided = st.session_state.get("guided") == "onboarding"
-    st.title("Help a customer get started")
+    st.title("Setup support")
     st.session_state.setdefault("channel_val", "email")
     steps = _steps(db) if guided else None
     cur = walkthroughs.panel("onboarding", steps) if guided else None
     finished = guided and cur is None
-    if not guided:
-        st.caption("See how the assistant checks a customer's setup, offers guidance, reads replies and involves support. Uses prepared responses; no AI model is called.")
     if guided:
         aid, jid = FEATURED, db.one("SELECT id FROM journeys WHERE account_id=? AND product='docs'", (FEATURED,))["id"]
         session.select(FEATURED, "docs")
-        st.caption("Example customer: Maple Design. To look at other customers, choose **Back to overview**, then open the Customer workspace.")
     else:
+        st.caption("See how the assistant checks a customer's setup, offers guidance, reads replies and involves support. Uses prepared responses; no AI model is called.")
         aid, jid = style.account_picker(db)
         if not aid or not jid:
-            st.info("**Start here:** go to the Overview page and choose **Explore setup support**, or pick any customer above.")
+            st.info("**Start here:** choose a customer above, or go to the Overview and choose **Explore setup support**.")
             session.show_flash()
-            session.show_action()
+            session.show_action("agent")
             return
     prod = db.one("SELECT product FROM journeys WHERE id=?", (jid,))["product"]
     j = db.one("SELECT * FROM journeys WHERE id=?", (jid,))
+    style.context_line(db, aid, prod, "Guided example: Maple Design." if guided else None)
+    pr = rules.progress(db, aid, prod)
+    st.caption(f"Setup progress: {pr['done_count']} of {pr['total']} steps. " + (f"Next step: {pr['next_milestone']['customer_label']}." if pr["next_milestone"] else "Setup is complete.") + f" Journey: {STATE_LABEL[j['state']]}.")
     session.show_flash()
-    session.show_action()
+    session.show_action("agent")
     if not guided:
         el = rules.evaluate_outreach(db, jid)
-        acc = db.one("SELECT name FROM accounts WHERE id=?", (aid,))
-        st.markdown(f"**{acc['name']} · {PRODUCT_LABEL[prod]}** &nbsp; {style.badge(j['state'])}", unsafe_allow_html=True)
         st.caption("May the assistant contact this customer on its own right now? " + ("**Yes.**" if el.allowed else "**Not right now:** " + narrate.PLAIN.get(el.blockers[0].code, el.blockers[0].message) + "."))
-    if not guided:
         st.button("Check this customer's setup", type="primary", on_click=_check, args=(db, aid, jid),
                   help="The assistant looks at the customer's goal, progress and history, then decides whether to send help. It may decide to do nothing.")
         task = db.one("SELECT id, status FROM human_tasks WHERE journey_id=? AND status!='resolved' ORDER BY created_at DESC LIMIT 1", (jid,))
@@ -176,14 +185,21 @@ def render():
     if finished:
         walkthroughs.summary_onboarding(db)
 
-    st.markdown("##### Conversation")
-    st.caption("Newest first. Simulated email and chat between the customer and the assistant.")
     msgs = db.q("SELECT * FROM interactions WHERE account_id=? AND kind IN ('message','human_update') ORDER BY rid DESC LIMIT 40", (aid,))
-    with st.container(height=380, border=True):
-        if not msgs:
-            st.info("Nothing here yet. Start with the first step to see the assistant's message.")
-        for m in msgs:
+    texts = [m for m in msgs if m["kind"] == "message"]
+    st.markdown("##### Latest exchange")
+    st.caption("The newest customer reply and the assistant's response. This stays on screen after every click.")
+    if not texts:
+        st.info("Nothing here yet. Check this customer's setup to see the assistant's first message." if not guided else "Nothing here yet. Start with the first step.")
+    else:
+        i = next((n for n, m in enumerate(texts) if m["actor"] == "customer"), None)
+        latest = list(reversed(texts[: i + 1])) if i is not None else texts[:1]
+        for m in latest:
             style.bubble(m)
+    with st.expander(f"Full conversation, newest first ({len(msgs)})"):
+        with st.container(height=380, border=True):
+            for m in msgs:
+                style.bubble(m)
     with st.expander("More customer replies" if guided else "Choose a customer reply", expanded=not guided):
         st.markdown("Choose a customer reply to see how the assistant responds.")
         cols = st.columns(2)

@@ -118,5 +118,11 @@ def from_run(db, run_id: str) -> dict:
         last = next((e["rationale"] for e, r in reversed(parsed) if e["rationale"]), "")
         why = last or "The rules did not allow or require any action."
     tone = "error" if run["outcome"] == "error" else "warning" if run["outcome"] == "step_limit" else "success"
+    task = next((r["data"] for e, r in parsed if e["tool"] == "create_handoff" and r["ok"]), None)
+    short = headline(run["summary"], run["trigger"], tone)
+    if task:
+        name = db.one("SELECT name FROM accounts WHERE id=?", (run["account_id"],))["name"]
+        short = (f"Support is already working on this issue ({task['task_id']}, {name}). Setup reminders are paused." if task["existing"]
+                 else f"Support task {task['task_id']} was created for {name} and setup reminders were paused.")
     full = run["summary"] + (f" Error: {run['error']}" if run["error"] else "")
-    return {"found": found[:4], "did": full, "short": headline(run["summary"], run["trigger"], tone), "why": why, "tone": tone, "run_id": run_id}
+    return {"found": found[:4], "did": full, "short": short, "why": why, "tone": tone, "run_id": run_id, "task_id": task["task_id"] if task else None}

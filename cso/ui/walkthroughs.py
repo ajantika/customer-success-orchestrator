@@ -35,8 +35,13 @@ def _restart(which):
 
 
 def _leave():
-    st.session_state.pop("guided", None)
     session.goto("overview")
+
+
+def _exit(which):
+    """Leave the guided steps but stay on the same customer. Progress is kept in the data, so 'Continue where you left off' resumes it."""
+    st.session_state.pop("guided", None)
+    session.record_action("You left the walkthrough. Its progress is kept; choose “Continue where you left off” on the Overview to resume.", tone="info", scope=("agent", "team"))
 
 
 def _other(which):
@@ -61,9 +66,10 @@ def panel(which: str, steps: list[dict]):
     done = [x["done"] for x in steps]
     cur = next((i for i, d in enumerate(done) if not d), None)
     with st.container(border=True):
-        top = st.columns([4, 2])
-        top[0].markdown(f"**{info['customer']}** · about {info['minutes']} minutes")
-        top[1].button("Back to overview", key=f"back_{which}", on_click=_leave, width="stretch")
+        top = st.columns([3, 2, 2])
+        top[0].markdown(f"**Guided example: {info['customer']}** · about {info['minutes']} minutes")
+        top[1].button("Exit walkthrough", key=f"exit_{which}", on_click=_exit, args=(which,), width="stretch", help="Leave the guided steps. Progress is kept.")
+        top[2].button("Back to overview", key=f"back_{which}", on_click=_leave, width="stretch")
         if sum(done) == 0:
             st.markdown(info["intro"])
         else:

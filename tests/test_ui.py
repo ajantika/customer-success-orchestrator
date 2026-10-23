@@ -95,24 +95,25 @@ def test_guided_journey_via_clicks_no_duplicates_and_handoff_opens_exact_task():
     tid = db.one("SELECT id FROM human_tasks WHERE origin='session'")["id"]
     assert db.one("SELECT state FROM journeys WHERE account_id=? AND product='docs'", (FEATURED,))["state"] == "waiting_for_human"
     _btn(at, "Open the support task").click().run()  # lands on the queue with Maple's task selected, not another customer's
-    assert at.session_state["task"] == tid and at.selectbox(key="w_task").value == tid
-    assert any("Maple Design" in m.value for m in at.markdown)
-    _btn(at, "Save note and resolve").click().run()   # an empty note is refused, with a visible message
+    assert at.session_state["task"] == tid and at.session_state["acct"] == FEATURED
+    assert any("Customer: Maple Design" in m.value for m in at.markdown)
+    _btn(at, "Save note and mark resolved").click().run()   # an empty note is refused, with a visible message
     assert db.one("SELECT status FROM human_tasks WHERE id=?", (tid,))["status"] != "resolved"
-    assert any("resolution note" in w.value.lower() for w in at.warning)
-    next(t for t in at.text_area if t.label.startswith("Resolution note")).set_value("Re-issued the directory token and verified sync.")
-    _btn(at, "Save note and resolve").click().run()   # one click saves the note and resolves
+    assert any("at least 10 characters" in e.value for e in at.error)   # the error sits beside the field
+    next(t for t in at.text_area if t.label == "What was fixed?").set_value("Re-issued the directory token and verified sync.")
+    _btn(at, "Save note and mark resolved").click().run()   # one click saves the note and resolves
     assert db.one("SELECT COUNT(*) n FROM agent_runs WHERE trigger='progress_check'")["n"] == 1
     assert db.one("SELECT state FROM journeys WHERE account_id=? AND product='docs'", (FEATURED,))["state"] != "completed"
-    _btn(at, "Return to this customer's journey").click().run()
-    assert at.session_state["acct"] == FEATURED and at.session_state["guided"] == "onboarding"
+    _btn(at, "Continue Maple Design's setup").click().run()
+    assert at.session_state["acct"] == FEATURED and at.session_state["prod"] == "docs" and at.session_state["guided"] == "onboarding"
+    assert any("Next step: Publish your first document." in c.value for c in at.caption)   # shows the next remaining step
     _btn(at, "Simulate completed setup").click().run()
     assert db.one("SELECT state FROM journeys WHERE account_id=? AND product='docs'", (FEATURED,))["state"] == "completed"
     assert db.one("SELECT COUNT(*) n FROM interactions WHERE actor='agent' AND journey_id IN (SELECT id FROM journeys WHERE account_id=? AND product='support')", (FEATURED,))["n"] == 0
     assert not at.exception, [e.value for e in at.exception]
 
 
-def test_queue_defaults_to_selected_task_not_first():
+def test_queue_follows_the_selected_customer_not_the_first_task():
     at = _at("agent")
     at.selectbox(key="w_acct").select(FEATURED).run()
     db = at.session_state["db"]
@@ -120,9 +121,12 @@ def test_queue_defaults_to_selected_task_not_first():
     for text in ("The directory connection is failing.", "We see an authentication error.", "We already tried those steps."):
         _btn(at, text).click().run()
     tid = db.one("SELECT id FROM human_tasks WHERE origin='session'")["id"]
-    _btn(at, f"Open support task {tid}").click().run()
     other = db.one("SELECT id FROM human_tasks WHERE origin='seed' AND status!='resolved' ORDER BY priority LIMIT 1")["id"]
-    assert at.selectbox(key="w_task").value == tid != other
+    _btn(at, f"Open support task {tid}").click().run()
+    assert at.session_state["task"] == tid != other
+    # entering the queue from the sidebar shows the selected customer's task, never another customer's
+    _goto(at, "customer"); _goto(at, "queue")
+    assert at.session_state["task"] == tid and at.session_state["acct"] == FEATURED
 
 
 def test_evaluation_view_stays_after_running_checks():
@@ -210,6 +214,7 @@ def test_default_view_hides_reviewer_only_features(monkeypatch):
 
 def test_failed_handoff_is_reported_honestly_and_can_be_retried(monkeypatch):
     monkeypatch.setenv("CSO_ADVANCED", "1")
+    monkeypatch.setattr("cso.ui.agent_page.DEBOUNCE_S", 0)   # a deliberate retry of the same reply is not a double click
     at = _at("overview")
     _btn(at, "Explore setup support").click().run()
     db = at.session_state["db"]
