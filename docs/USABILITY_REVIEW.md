@@ -7,15 +7,15 @@
 2. **Each walkthrough** opens the correct customer, shows "The situation" (2-3 sentences), a progress bar, one highlighted next action and a banner that says who the visitor is playing.
 3. **Every action** shows *What just happened*: what the system found, what it did, why, and what to do next. Tool calls, inputs and evidence are in expanders.
 4. **Plain wording:** the interface avoids job titles and customer-success terms; instructions are ordinary text, and only buttons look clickable.
-5. **Account Team brief** shows goal, signals, suggested next step, talking point, sources and unknowns; a legend explains Accept / Edit / Dismiss / Defer / Mark discussed; each action says where it was recorded and that nothing is sent or enrolled.
-6. **Endings** show a summary: the original problem, actions taken, resulting state and remaining follow-up, then next steps (explore the other workflow, view activity and evaluation, restart). Success is stated only when verified (onboarding: product events show setup complete; Account Team: the recommendation was discussed, with learning outcomes stated as synthetic and effect unknown).
+5. **Meeting brief** shows goal, signals, suggested next step, talking point, sources and unknowns; a legend explains Accept / Edit / Dismiss / Defer / Mark discussed; each action says where it was recorded and that nothing is sent or enrolled.
+6. **Endings** show a summary: the original problem, actions taken, resulting state and remaining follow-up, then next steps (explore the other workflow, view activity and evaluation, restart). Success is stated only when verified (onboarding: product events show setup complete; meeting preparation: the recommendation was discussed, with learning outcomes stated as sample and effect unknown).
 7. **Recovery:** *Restart this walkthrough* (resets only that customer, with the consequences stated), *Back to overview*, *Continue where you left off* / *Start over* on the Overview, *Reset all demo data*, and a failed step shows an error card with a way forward.
 
 ## Paths I tested
 | Path | How | Result |
 |---|---|---|
 | Customer onboarding, start to finish, laptop width (1280 px) | In the browser by clicking only the highlighted buttons, typing the resolution note, and following the on-screen next steps | Completed; summary shown; Docs journey completed from product events |
-| Meeting preparation, start to finish, laptop width | Same, in the browser | Completed; recommendation discussed; learning outcome shown as synthetic |
+| Meeting preparation, start to finish, laptop width | Same, in the browser | Completed; recommendation discussed; learning outcome shown as sample |
 | Both workflows via automated clicks | `tests/test_ui.py` (17 tests) | Pass: selection survives actions and navigation, handoff link opens the exact task, restart resets only one customer, failed handoff reported honestly and retried, role labels present |
 | Rules and tools | `tests/test_workflows.py` (40 tests) and `python -m cso.evaluation` | 34 of 34 workflow checks pass |
 
@@ -60,6 +60,6 @@
 - Resolution form: "What was fixed?", an inline error that keeps the typed text, "Save note and mark resolved", and a confirmation naming the customer. "Continue [customer]'s setup" returns to the same customer and product and shows the next remaining step; "Back to [customer]'s setup" leaves the task untouched.
 - The unified timeline has a description, plain filter names (Customer, Assistant, Support team, System), readable status entries, and a short empty state with a working button.
 - Results are scoped to the page and customer they belong to.
-- Wording: "sample" instead of "synthetic/fictional" in visitor-facing text; "Sample history"; the live-AI check is hidden unless `CSO_ADVANCED=1`.
+- Wording: "sample" instead of "sample/sample" in visitor-facing text; "Sample history"; the live-AI check is hidden unless `CSO_ADVANCED=1`.
 
 **Verified in the browser** (local server, fresh session): customer switching across Customer workspace, Setup support and Support tasks (including a customer with no tasks and "View all support tasks"); the full Maple support flow with visible replies, task reuse, validation errors, resolution and return; the timeline; leaving the walkthrough by choosing another customer; and the Northstar meeting flow with no support notifications. **Not verified:** the deployed site, and any independent user.

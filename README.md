@@ -1,86 +1,151 @@
 # Customer Success Orchestrator
 
-> **Independent portfolio prototype • Synthetic customer data.** Not affiliated with any company. Every customer, course, event and metric is generated.
+Customer Success Orchestrator is an interactive prototype that uses customer context to guide setup support, coordinate human handoffs, and prepare customer meeting recommendations.
 
-Two connected workflows on one customer-intelligence foundation, for a fictional SaaS company with three products (Tasks, Docs, Support):
+**[Live demo](https://customer-success-orchestrator.streamlit.app/)** · **[Case study](https://ajantika.github.io/customer-success-orchestrator.html)** · [Portfolio](https://ajantika.github.io/)
 
-1. **Customer onboarding assistance.** Detect stalled setup, give guidance grounded in documentation, understand replies, hand off to a person when needed, and verify progress.
-2. **Account Team enablement.** Help an Account Executive or Solutions Architect prepare for a customer meeting: goal, usage, learning progress, support status and relevant training, turned into a brief, a recommendation with evidence, and a human review step.
+> **Demo scope.** The demo uses sample customer data and prepared responses. The default experience does not call an AI model, send real messages, or connect to live customer systems. It demonstrates agent-style workflows (tools, rules, review steps and activity history); it is not a deployed autonomous AI system, and nothing here is evidence of production results.
 
-Business rules (who may be contacted, when, how often, which tools an agent may call, what counts as evidence) are enforced in application code, not left to a model.
+<p>
+  <img src="docs/images/setup-support.webp" alt="Setup support screen for the example customer Maple Design: a support task was created, reminders paused, and the latest customer reply and assistant response are shown." width="49%">
+  <img src="docs/images/meeting-preparation.webp" alt="Meeting preparation screen for Northstar Retail: why attention may be needed, the recommended next step, a suggested talking point, and review buttons." width="49%">
+</p>
 
-## Quick start
+## The problem and who it is for
+
+Customer information is often spread across product reports, support systems and learning records. Teams need to see which customers are stuck, why, and what action would help. Finding that context and coordinating follow-up can involve repetitive manual work. This prototype explores that problem. It is not based on customer interviews or production data.
+
+| User | What they need |
+|---|---|
+| Customer success | See stalled setup and decide who needs help |
+| Support | Receive enough context to investigate without repeating earlier troubleshooting |
+| Sales and customer success | Prepare relevant questions and recommendations before a customer meeting |
+| Product and operations | Inspect workflow behaviour, review decisions and feedback |
+
+## Two walkthroughs
+
+**1. Help a customer complete setup (example: Maple Design)**
+
+1. Review the customer's goal and setup progress, and find the next incomplete step.
+2. Send relevant guidance from the product documentation, respecting the planned rollout date, message limits and opt-outs.
+3. When the customer reports a problem without detail, ask which error they see; then send only the matching section and cite it.
+4. If the customer says they already tried the steps, create one support task with the goal and prior troubleshooting, and pause reminders.
+5. When support records how it was fixed, re-check setup progress. Resolving a task does not complete onboarding.
+6. Close the journey only when the required sample product events show completion. A completion claim typed without events keeps the journey open.
+
+**2. Prepare for a customer conversation (example: Northstar Retail)**
+
+1. Gather the customer's goal, setup progress, workflow activity, learning records, open issues and rollout plan.
+2. Prepare a summary, a suggested next step, a customer-facing talking point and a learning suggestion with prerequisites.
+3. Show the evidence and the open questions. Low usage is a reason to ask, not proof of a skills gap.
+4. A reviewer can accept, edit, dismiss or defer the suggestion, with reasons. The original wording is kept beside any edit.
+5. Record whether it was discussed. Customer enrolment and learning progress are tracked separately; accepting a suggestion never enrols anyone.
+
+Start either one from the Overview page of the demo. Written scripts: [Maple Design](docs/DEMO_SCRIPT_MAPLE.md) · [Northstar Retail](docs/DEMO_SCRIPT_NORTHSTAR.md).
+
+## Key product decisions
+
+| Decision | Why it matters |
+|---|---|
+| Keep the selected customer across pages | Prevents acting on the wrong company's information |
+| Respect planned rollout dates | Avoids contacting customers before they intend to start |
+| Pause reminders while support investigates | Avoids conflicting or repetitive outreach |
+| Include previous troubleshooting in handoffs | Gives support the context to continue |
+| Show the evidence behind recommendations | Lets a reviewer judge whether a suggestion is appropriate |
+| Keep review decisions separate from customer outcomes | Prevents acceptance being mistaken for adoption |
+| Check completion evidence | Avoids closing a journey on a message alone |
+
+More decisions, alternatives and trade-offs: [docs/DECISIONS.md](docs/DECISIONS.md).
+
+## Architecture and data flow
+
+```
+Streamlit pages ──button callbacks only──► services.py (setup support) / team.py (meeting preparation)
+                                                │
+                                   agent.py: bounded loop, step limit
+                                   a rule-based decider proposes the next tool call
+                                                │
+                              tools.py: validate input → allow-list → account boundary →
+                              idempotency → run → record evidence and audit entry
+                                                │
+        ┌──────────────┬──────────────────┬─────┴────────┬─────────────────────┐
+        ▼              ▼                  ▼              ▼                     ▼
+    rules.py     retrieval.py      training catalog   SQLite (in memory,   evaluation.py
+ (eligibility,   (keyword TF-IDF   (token overlap     one per session):    (35 workflow
+  transitions)    over Markdown)    over 8 courses)   accounts, journeys,   checks, ratings)
+                                                      meetings, learners,
+                                                      recommendations,
+                                                      feedback, runs, tool executions
+```
+
+- **Data.** 43 sample accounts are generated from a fixed seed (`cso/datagen.py`, `cso/seed_team.py`). Each visitor session gets its own in-memory SQLite database that resets when the session ends.
+- **Rules in code.** Eligibility for outreach, allowed state transitions, frequency limits, opt-outs, completion evidence and recommendation validity are Python functions (`cso/rules.py`, `cso/tools.py`), not prompt text.
+- **Tools.** 16 tools with Pydantic input and output models and no free-form SQL or code execution. A run is bound to one account, has a per-workflow allow-list, and mutating tools use idempotency keys. Review actions can only be recorded by a human reviewer.
+- **Retrieval.** Section-level TF-IDF keyword matching over 13 sample Markdown documents (`kb/`), with a "not supported" fallback. There are no embeddings, no vector search and no language-model generation in the default experience. The training catalog is searched by token overlap.
+- **Evidence.** Read tools return evidence items with a source and timestamp. A recommendation may cite only evidence gathered in the same run, and a message may cite only documents it retrieved.
+- **Activity history.** Agent runs, tool executions, guard events (blocked sends, duplicates prevented) and review history are stored and shown in the interface.
+- **Simulated.** Email, chat, calendar, support queue and learning records are sample data inside the app. There are no external integrations.
+- **Optional model adapter.** `cso/llm.py` contains an adapter for the Anthropic API that reuses the same tools and rules. It is hidden unless `CSO_ADVANCED=1`, is tested only with a fake client, and has not been run against a real model here.
+
+More detail: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+## Evaluation and verified checks
+
+Verified on **23 October 2026** (version `87d57d8` of `main`, re-run after the wording changes in this update; Python 3.13.5, Streamlit 1.57.0):
+
+- `pytest`: **77 tests pass**: 41 workflow and unit tests, 19 UI click-through tests, 13 customer-context regression tests, 4 tests of the optional model adapter with a fake client.
+- `python -m cso.evaluation`: **35 of 35 workflow checks pass**. They cover outreach before rollout, opt-outs, frequency limits, duplicate messages, tasks and recommendations, completion and reminders, failed handoffs reported honestly, account isolation, unsupported claims, prerequisites and paid options, dismissed and deferred suggestions, and review decisions staying separate from learning outcomes.
+- Browser walkthroughs of both workflows were run locally against that version.
+
+What is **not** evaluated: language quality (the app can record human ratings, none are recorded here), the optional model adapter against a real model, and any business outcome. Details and per-check evidence: [docs/EVALUATION.md](docs/EVALUATION.md) · usability notes: [docs/USABILITY_REVIEW.md](docs/USABILITY_REVIEW.md).
+
+## Run it locally
+
+Developed and tested with Python 3.13.
 
 ```bash
+git clone https://github.com/ajantika/customer-success-orchestrator.git
+cd customer-success-orchestrator
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-streamlit run app.py
+streamlit run app.py        # entry point: app.py
+pytest                      # tests
+python -m cso.evaluation    # workflow checks
 ```
 
-No API key is needed. On the Overview page choose **Explore setup support** or **Explore meeting preparation**. Each opens a short guided checklist. The app guides you; written walkthroughs: [Maple Design](docs/DEMO_SCRIPT_MAPLE.md) and [Northstar Retail](docs/DEMO_SCRIPT_NORTHSTAR.md).
+No account, API key or configuration is needed. Optional environment variables: `CSO_ADVANCED=1` shows reviewer-only options (situation scenarios, demo clock, a switch that simulates a failed handoff, the configuration page, and the optional model adapter); `ANTHROPIC_API_KEY` and `CSO_MODEL` apply only to that adapter. Never commit a key; `.streamlit/secrets.toml` is git-ignored.
 
-```bash
-pytest                       # workflow checks, tool/rule tests, UI click-through tests, live-adapter tests with a fake client
-python -m cso.evaluation     # the 35 workflow checks with per-check evidence
-```
+## Current limitations
 
-## What this is (and is not)
+- Email, chat, calendar, support and learning data are simulated; nothing is sent, scheduled, enrolled or purchased.
+- Reply understanding is a keyword screen, so paraphrases may be treated as unknown. Retrieval has no synonym handling.
+- Thresholds (stalled days, message limits, stale data) are demo values, not benchmarks. All metrics shown come from sample data and imply nothing about real improvement.
+- Scope is setup support and meeting preparation only. There is no billing, renewal or expansion logic.
+- Laptop and desktop screens only; narrow screens were not a goal.
+- Built with AI-assisted development. I set the scope, rules and review criteria and checked the behaviour; the code was written largely with an AI coding assistant.
 
-This is a **simulation of an agent workflow** built with prepared scenarios and deterministic rules. **No AI model is called.** The tools, rules, review steps and data changes are real inside the session, so it demonstrates product and workflow design: when to act, when not to, what a human must approve, and how decisions are recorded. It does not demonstrate the behaviour of a language model.
+## How I would measure it in a pilot (proposed, not achieved)
 
-An optional model-backed adapter (`cso/llm.py`, Anthropic Messages API) exists in the code with tests that use a fake client. It is hidden in the demo and has never been run against a real model here. To expose it for local experiments, set `CSO_ADVANCED=1` (this also shows reviewer-only options: situation scenarios, the demo clock, handoff-failure switch and the configuration page) and provide `ANTHROPIC_API_KEY`.
-
-## Pages
-
-| Page | Purpose |
+| Goal | Proposed measure |
 |---|---|
-| Overview | Two entry points, account and journey counts (with definitions), accounts needing attention, daily scan |
-| Customer workspace | Goal, lifecycle stage, owner, products and rollout plan, milestones, learning progress, upcoming meetings, open issues, contact preferences, timeline, and *why* a customer is or isn't eligible for outreach |
-| Setup support | Walkthrough with the example company Maple Design: inbox, customer replies, a plain-language "What just happened" card after every action, technical details in an expander |
-| Support tasks | The problem, what was tried and who owns the next step; record how it was resolved with one form; opens on the exact task you came from |
-| **Meeting preparation** | Simulated upcoming meetings, meeting brief, recommendation card with evidence, accept / edit / dismiss / defer / mark discussed, learning outcomes tracked separately, scenario controls, feedback summary |
-| Evaluation | Observed session activity, seeded synthetic history, and system evaluation (workflow checks, human ratings), with definitions and denominators |
+| Help customers get started | Setup completion rate and time to first value |
+| Reduce repetitive work | Manual follow-ups and meeting preparation time |
+| Improve support handoffs | Time to resolution and repeated requests for context |
+| Make recommendations useful | Review, acceptance, edit, dismissal and discussion rates |
+| Support learning | Enrolment, course starts and completion |
+| Understand downstream value | Meaningful product usage after assistance or training |
+| Avoid unnecessary contact | Duplicate outreach, opt-outs and inappropriate reminders |
 
-## Project structure
+Establish a baseline first and, where feasible, compare a pilot group with a comparable group. A before-and-after change alone would not show cause.
+
+## Repository guide
 
 ```
-app.py                  Entry point, navigation, sidebar (mode badge, AI model settings, demo clock)
-cso/
-  models.py             Journey states and transitions, validated policy settings, milestone definitions
-  db.py                 Session-scoped in-memory SQLite repository and schema
-  datagen.py            Deterministic synthetic data (43 accounts)
-  seed_team.py          Course catalog, Northstar Retail, prospects, meetings, recommendation history
-  rules.py              Business rules: eligibility, progress, opt-out, message screening
-  tools.py              16 tools: schemas, account boundary, allow-lists, idempotency, evidence, citations
-  retrieval.py          TF-IDF documentation retriever
-  agent.py              Bounded agent loop + deterministic decider (onboarding and meeting preparation)
-  llm.py                Live AI decider (Anthropic adapter) with separate prompts per workflow
-  services.py           Onboarding actions (button callbacks only)
-  team.py               Account Team actions: prepare, scan, review, scenarios, measures
-  evaluation.py         34 workflow checks, human ratings, optional live runner
-  session.py            Canonical selection, navigation requests, mode
-  ui/                   One module per page + styling
-kb/                     Fictional product docs and learning paths (Markdown, stable IDs)
-tests/                  pytest suite
-docs/                   Brief, architecture, decisions, operating model, evaluation, case study, two demo scripts
+app.py            Streamlit entry point
+cso/              rules, tools, agent loop, data generation, retrieval, evaluation, UI pages
+kb/               sample product documentation and learning paths (Markdown)
+tests/            pytest suite
+docs/             product brief, architecture, decisions, operating model, evaluation, usability review, demo scripts
 ```
 
-## Deploy to Streamlit Community Cloud
-
-1. Push to GitHub. 2. In Streamlit Community Cloud choose **Create app**, pick the repo and branch, main file `app.py`. 3. Leave secrets empty for a public demo; visitors can paste their own key. Each visitor gets a private in-memory database that resets when their session ends.
-
-## Known limitations
-
-- Email, chat, calendar and CRM are simulated. Nothing is sent, scheduled, enrolled or purchased.
-- Reply understanding in Demo mode is a keyword screen, so paraphrases may land as "unknown"; the agent then searches docs or offers a handoff.
-- Retrieval and training-catalog search are simple word-matching (TF-IDF / token overlap), with no synonyms.
-- No scheduler: reminders and scans run when you click. Thresholds are demo policy, not benchmarks.
-- Seeded metrics are synthetic and imply nothing about real improvement. Time saved, learning lift and revenue are not measured.
-- Only onboarding, adoption and learning are in scope. The agent cannot change billing, plans or permissions.
-- The Account Team assistant's feedback summary informs roadmap decisions; the assistant does not learn from feedback automatically.
-- The optional model-backed adapter is hidden by default and untested against a real model.
-- The interface is designed for a laptop or desktop screen; narrow screens were not a goal for this version.
-
-## Self-service use
-
-A first-time visitor needs no explanation. The Overview says what the demo is for and offers two walkthroughs with their duration. Each walkthrough opens an example customer, explains the situation in a sentence or two, shows progress, and offers one prominent button per step. In the onboarding walkthrough the buttons are the customer's replies themselves ("The directory connection is failing."), and the conversation is shown newest first so the response is easy to find. After each click one short result message appears, with the longer "what happened and why" in a Details section. Each walkthrough ends with a summary and next steps. **Restart this walkthrough** resets only that example customer; **Back to overview** leaves the walkthrough; **Reset all demo data** (sidebar) resets everything. See [docs/USABILITY_REVIEW.md](docs/USABILITY_REVIEW.md).
+Deploy to Streamlit Community Cloud with `app.py` as the main file; leave secrets empty for a public demo.

@@ -18,12 +18,12 @@
 | 14 | **Anthropic only for live mode** | Multi-provider abstraction | One complete integration beats several partial ones | A second provider is required |
 | 15 | **Policy thresholds shown as demo values** | Present as best practice | They are arbitrary; calling them recommendations would mislead | Calibrated from real data |
 | 16 | **Canonical selection in session keys, widgets mirror it** | Rely on widget keys | Streamlit drops widget state on other pages and recreates widgets whose labels change; stable IDs and mirrored state fix the root cause | Streamlit changes widget persistence |
-| 17 | **Account Team recommendations are a hypothesis plus a question, not a diagnosis** | Recommend training directly from low usage | Low usage has many causes; the talking point asks whether help is needed and makes training conditional | Evidence from a pilot that usage alone predicts need |
+| 17 | **Meeting recommendations are a hypothesis plus a question, not a diagnosis** | Recommend training directly from low usage | Low usage has many causes; the talking point asks whether help is needed and makes training conditional | Evidence from a pilot that usage alone predicts need |
 | 18 | **Evidence IDs gathered in-run are the only citable evidence** | Free-text rationale | Prevents unsupported claims in both demo and live modes | Evidence structure needs to link to a real CRM |
 | 19 | **Evidence completeness instead of a confidence percentage** | Show a score | An arbitrary percentage would imply precision that does not exist | Calibrated against reviewer outcomes |
 | 20 | **Only humans can record review actions; agent runs have tool allow-lists** | Let the agent self-approve | Review must be a human control; allow-lists limit blast radius | Never for customer-facing proposals |
-| 21 | **Accepting is not enrolling; outcomes tracked separately** | Treat acceptance as success | Acceptance means the Account Team agrees to raise it, not that the customer did anything | Real LMS integration |
+| 21 | **Accepting is not enrolling; outcomes tracked separately** | Treat acceptance as success | Acceptance means the reviewer agrees to raise it, not that the customer did anything | Real LMS integration |
 | 22 | **Original recommendation preserved beside edits** | Overwrite | Product owners learn from what changed | Storage or privacy limits |
 | 23 | **Clarify before troubleshooting** | Send all fixes for a vague error | Shorter, less repetitive, avoids already-tried steps | Customers abandon after a question (measure in a pilot) |
 | 24 | **Dark theme with one accent palette** | Light default | Reduces glare in demos and keeps charts and tables consistent | Accessibility review finds contrast issues |
-| 25 | **Keep the new page count to one** | Separate pages per feature | Account Team features sit on one page; extensions live in Customer workspace and Evaluation | Page grows past what one view can hold |
+| 25 | **Keep the new page count to one** | Separate pages per feature | Meeting-preparation features sit on one page; extensions live in Customer workspace and Evaluation | Page grows past what one view can hold |
