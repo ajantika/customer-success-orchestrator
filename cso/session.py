@@ -25,7 +25,14 @@ def get_db() -> DB:
     return st.session_state["db"]
 
 
+WORKFLOW_ACCT = {"onboarding": FEATURED, "team": NORTHSTAR}
+
+
 def select(acct: str | None, prod: str | None = None, **extra):
+    """Set the selected customer. Choosing a different customer leaves any guided walkthrough (its progress is kept)."""
+    g = st.session_state.get("guided")
+    if g and WORKFLOW_ACCT.get(g) != acct:
+        st.session_state.pop("guided", None)
     st.session_state["acct"] = acct
     if prod:
         st.session_state["prod"] = prod
@@ -101,25 +108,41 @@ def mode_hint() -> str:
     return "An AI model chooses tools and writes messages; rules still run in code." if mode() == "live" else "Uses prepared responses and rules. No AI model is called."
 
 
-def record_action(did: str, found: list[str] | None = None, why: str = "", tone: str = "success", run_id: str | None = None, detail: str | None = None):
-    """Remember the result of the last action: one short message, with longer explanations kept for an optional details section."""
-    st.session_state["last_action"] = {"found": found or [], "did": did, "why": why, "tone": tone, "run_id": run_id, "detail": detail}
+def record_action(did: str, found: list[str] | None = None, why: str = "", tone: str = "success", run_id: str | None = None, detail: str | None = None,
+                  scope: tuple[str, ...] | None = None, task_id: str | None = None, account_id: str | None = None):
+    """Remember the result of the last action. It is shown only on the pages named in `scope`, so a result never turns up in an unrelated workflow."""
+    st.session_state["last_action"] = {"found": found or [], "did": did, "why": why, "tone": tone, "run_id": run_id, "detail": detail, "scope": scope, "task_id": task_id,
+                                      "account_id": account_id or st.session_state.get("acct")}
     try:
         st.toast(did[:140], icon="✅" if tone == "success" else "⚠️" if tone in ("warning", "error") else "ℹ️")
     except Exception:
         pass
 
 
-def show_action(next_text: str | None = None, compact: bool = True):
-    """One short result message; the longer 'what happened and why' sits in an expander."""
+def open_task(task_id: str):
+    """Open one specific support task, with its customer and product selected."""
+    db = st.session_state["db"]
+    t = db.one("SELECT account_id, product FROM human_tasks WHERE id=?", (task_id,))
+    select(t["account_id"], t["product"])
+    st.session_state["task"] = task_id
+    st.session_state["queue_scope"] = "customer"
+    goto("queue")
+
+
+def show_action(scope: str | None = None, any_customer: bool = False):
+    """One short result message; the longer 'what happened and why' sits in an expander.
+
+    A result belongs to the page named in its scope and to the customer it was about, so it never shows up under another customer or workflow."""
     a = st.session_state.get("last_action")
-    if not a:
+    if not a or (scope and a.get("scope") and scope not in a["scope"]):
+        return
+    if scope in ("agent", "queue") and not any_customer and a.get("account_id") and a["account_id"] != st.session_state.get("acct"):
         return
     icon = {"success": "✅", "warning": "⚠️", "error": "⛔", "info": "ℹ️"}.get(a["tone"], "✅")
     with st.container(border=True):
         st.markdown(f"{icon} **{a['did']}**")
-        if next_text:
-            st.markdown(next_text)
+        if a.get("task_id"):
+            st.button(f"Open support task {a['task_id']}", key=f"ot_{a['task_id']}", on_click=open_task, args=(a["task_id"],))
         if a.get("detail") or a["found"] or a["why"]:
             with st.expander("Details: what happened and why"):
                 if a.get("detail"):
@@ -136,13 +159,16 @@ def report_run(res: dict):
     """Turn an agent run result into a visible card. Errors are never hidden or replaced by prepared output."""
     from .ui import narrate
     if res.get("deduplicated"):
-        record_action(res["summary"], tone="info", why="The same action was already done, so nothing was repeated.")
+        record_action(res["summary"], tone="info", why="The same action was already done, so nothing was repeated.", scope=("agent", "team"))
     elif res.get("run_id"):
         d = narrate.from_run(st.session_state["db"], res["run_id"])
         if res.get("outcome") == "error":
             d["short"] = "The AI model could not be reached. Nothing was changed."
             d["did"] = f"The AI model call failed: {res.get('error')} Your session and data are unchanged by the failed call."
-        record_action(d["short"], d["found"], d["why"], d["tone"], res["run_id"], detail=d["did"])
+        run = st.session_state["db"].one("SELECT trigger, account_id FROM agent_runs WHERE id=?", (res["run_id"],))
+        run_acct = run["account_id"] if run else None
+        record_action(d["short"], d["found"], d["why"], d["tone"], res["run_id"], detail=d["did"], account_id=run_acct,
+                      scope=("team",) if run and run["trigger"] == "meeting_prep" else ("agent",), task_id=d.get("task_id"))
     else:
         record_action(res.get("summary", "Done."))
     st.session_state.pop("flash", None)

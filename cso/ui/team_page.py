@@ -17,9 +17,17 @@ ACTION_LABEL = {"training": "Learning recommendation", "technical_followup": "Te
 
 
 # ------------------------------------------------------------- callbacks ---
+def _ra(*a, **k):
+    """Results from this page are shown only on this page."""
+    session.record_action(*a, scope=("team",), **k)
+
+
 def _on_meeting():
     st.session_state["meeting"] = st.session_state.get("w_meeting")
     db = session.get_db()
+    m = db.one("SELECT account_id FROM meetings WHERE id=?", (st.session_state["meeting"],))
+    if m:
+        session.select(m["account_id"])   # an explicit choice of meeting selects its customer
     if team.latest_rec(db, st.session_state["meeting"]):
         team.view_brief(db, st.session_state["meeting"], st.session_state["reviewer"])
 
@@ -35,14 +43,14 @@ def _prepare(db, mid):
             team.view_brief(db, mid, st.session_state["reviewer"])
         session.report_run(res)
     except Exception as e:
-        session.record_action(f"Something went wrong: {type(e).__name__}: {e}", tone="error")
+        _ra(f"Something went wrong: {type(e).__name__}: {e}", tone="error")
 
 
 def _scan(db):
     rows = team.scan_upcoming(db, 7)
     st.session_state["team_scan"] = rows
     new = sum(r["New recommendation"] == "Yes" for r in rows)
-    session.record_action(f"Checked {len(rows)} upcoming meeting(s) and prepared {new} new suggestion(s) for review. Nothing was sent to any customer.",
+    _ra(f"Checked {len(rows)} upcoming meeting(s) and prepared {new} new suggestion(s) for review. Nothing was sent to any customer.",
                           why="Scanning only runs when you click. Running it again creates no duplicates.")
 
 
@@ -60,10 +68,10 @@ def _act(db, rec_id, action, reason=None, note=None, revised=None, defer_days=No
                  "discussed": "Marked as discussed. This does not mean the customer did anything.",
                  "dismissed": "The recommendation was dismissed and will not be suggested again for this meeting.",
                  "deferred": "The recommendation was deferred. It stays saved."}[action]
-        session.record_action(short, why=f"Recorded as {st.session_state['reviewer']}'s decision, with the time and any reason, in the review history. It also feeds the feedback summary and the Evaluation page.",
+        _ra(short, why=f"Recorded as {st.session_state['reviewer']}'s decision, with the time and any reason, in the review history. It also feeds the feedback summary and the Evaluation page.",
                               detail=f"Recommendation {rec_id} is now {action}.")
     else:
-        session.record_action(res["error"]["message"], tone="warning")
+        _ra(res["error"]["message"], tone="warning")
 
 
 def _edit(db, rec_id):
@@ -81,7 +89,7 @@ def _defer(db, rec_id):
 
 def _learning(db, rec_id, stage):
     n = team.simulate_learning(db, rec_id, stage, 2)
-    session.record_action(f"Sample update: {n} learner(s) {stage}. This is the customer's own progress, tracked separately from the recommendation." if n else "No learners could be updated for this step.",
+    _ra(f"Sample update: {n} learner(s) {stage}. This is the customer's own progress, tracked separately from the recommendation." if n else "No learners could be updated for this step.",
                           why="Accepting a recommendation never enrolls anyone. This button only simulates what a customer might do afterwards." if n else "", tone="success" if n else "info")
 
 
@@ -89,7 +97,7 @@ def _scenario(db):
     label = team.apply_scenario(db, st.session_state["scn"])
     st.session_state["meeting"] = team.NS_MEETING
     session.select(team.NORTHSTAR, "docs")
-    session.record_action(f"Situation applied: {label}.", why="Prepare the meeting summary again to see how the assistant responds to this situation.", tone="info")
+    _ra(f"Situation applied: {label}.", why="Prepare the meeting summary again to see how the assistant responds to this situation.", tone="info")
 
 
 def _guided_edit(db, rec):
@@ -99,11 +107,11 @@ def _guided_edit(db, rec):
                      {"talking_point": cur["talking_point"] + " Who owns the shared documentation workflow on your side?"})
     r2 = team.review(db, rec["id"], "accepted", st.session_state["reviewer"]) if r1["ok"] else r1
     if r2["ok"]:
-        session.record_action("Your edit was saved and the recommendation was accepted. Nothing was sent to the customer and nobody was enrolled.",
+        _ra("Your edit was saved and the recommendation was accepted. Nothing was sent to the customer and nobody was enrolled.",
                               why=f"Both steps are recorded as {st.session_state['reviewer']}'s decisions in the review history. The status now reads “Accepted with edits”, and the original wording is kept.",
                               detail=f"Recommendation {rec['id']} was edited, then accepted.")
     else:
-        session.record_action(r2["error"]["message"], tone="warning")
+        _ra(r2["error"]["message"], tone="warning")
 
 
 def _exit_guided():
@@ -270,6 +278,8 @@ def _outcomes(db, rec):
 # ------------------------------------------------------------------- page ---
 def render():
     db = session.get_db()
+    if st.session_state.get("guided") == "team" and st.session_state.get("acct") != "ACC-041":
+        st.session_state.pop("guided", None)       # a different customer was chosen: leave the walkthrough, keep its progress
     guided = st.session_state.get("guided") == "team"
     st.title("Prepare for a customer conversation")
     st.session_state.setdefault("reviewer", "Riley Chen")
@@ -284,7 +294,7 @@ def render():
     with st.expander("Reviewer name (sample)", expanded=False):
         st.selectbox("Reviewer", REVIEWERS, key="w_reviewer", on_change=_on_reviewer)
     session.show_flash()
-    session.show_action()
+    session.show_action("team")
     if guided and cur is None:
         walkthroughs.summary_team(db)
 
@@ -309,6 +319,10 @@ def render():
             st.dataframe(pd.DataFrame(st.session_state["team_scan"]).drop(columns=["meeting_id"]).assign(Date=lambda d: d["Date"].map(when)), hide_index=True, width="stretch")
         ids = [m["id"] for m in meetings]
         sel = st.session_state.get("meeting")
+        mine = [m["id"] for m in meetings if m["account_id"] == st.session_state.get("acct")]
+        if not guided and mine and sel not in mine:
+            sel = mine[0]                       # follow the selected customer's meeting
+            st.session_state["meeting"] = sel
         if sel not in ids:
             sel = ids[0]
             st.session_state["meeting"] = sel
@@ -318,7 +332,6 @@ def render():
             st.selectbox("Meeting", ids, format_func=names.get, key="w_meeting", on_change=_on_meeting)
     sel = st.session_state.get("meeting") if st.session_state.get("meeting") in [m["id"] for m in meetings] else meetings[0]["id"]
     m = next(x for x in meetings if x["id"] == sel)
-    session.select(m["account_id"])
     roles = ", ".join(json.loads(m["attendee_roles"]))
 
     st.markdown(f"## {m['name']}")

@@ -385,6 +385,14 @@ def create_handoff(ctx: ToolContext, a: HandoffIn) -> HandoffOut:
                       (a.account_id, j["product"]))
     if existing:
         db.guard("duplicate_prevented", a.account_id, a.journey_id, f"handoff already open: {existing['id']}")
+        # reuse the task, but never lose a genuinely new customer message: attach it to the task as a follow-up
+        tctx = json.loads(existing["context"] or "{}")
+        last = db.one("SELECT id, body, ts FROM interactions WHERE account_id=? AND actor='customer' AND kind='message' ORDER BY rid DESC LIMIT 1", (a.account_id,))
+        follow = tctx.setdefault("follow_ups", [])
+        if last and last["id"] not in [f["id"] for f in follow]:
+            follow.append({"id": last["id"], "ts": last["ts"], "excerpt": last["body"][:200]})
+            db.update("human_tasks", existing["id"], context=json.dumps(tctx))
+            db.timeline(a.account_id, "system", "tool_action", f"New customer message added to support task {existing['id']}: “{last['body'][:80]}”", a.journey_id)
         return HandoffOut(task_id=existing["id"], case_id=existing["case_id"], team=existing["team"], existing=True)
     case = db.one("SELECT * FROM support_cases WHERE account_id=? AND product=? AND status='open' AND blocking=1", (a.account_id, j["product"]))
     st = db.get_settings()

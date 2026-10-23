@@ -7,9 +7,10 @@ import streamlit as st
 from .. import evaluation as E, services as S, session, team
 from ..format import when
 from ..models import PRODUCT_LABEL, STATE_LABEL
+from .. import flags
 from . import style
 
-TABS = ["Observed in this session", "Seeded synthetic history", "System evaluation"]
+TABS = ["Observed in this session", "Sample history", "System evaluation"]
 
 
 def _run_checks(db):
@@ -78,7 +79,7 @@ def _tab_session(db):
 def _tab_seed(db):
     sd = S.seeded_metrics(db)
     tm = team.team_metrics(db, "seed")
-    st.warning("**Synthetic.** Generated from a fixed random seed. Not real customers and not evidence of any improvement.")
+    st.warning("**Sample data.** Generated from a fixed random seed. Not real customers and not evidence of any improvement.")
     comp = pd.DataFrame([{"Product": PRODUCT_LABEL[r["product"]], "Rollout started": r["rollout_started"], "Completed": r["completed"],
                           "Setup completion": S.pct(r["completed"], r["rollout_started"])} for r in sd["completion"]])
     st.markdown("**Setup completion** · journeys completed ÷ journeys whose planned rollout had started when the data was generated")
@@ -86,7 +87,7 @@ def _tab_seed(db):
     st.markdown("**Time to first milestone** · median days from planned rollout start to the first milestone event, accounts with at least one milestone")
     st.dataframe(pd.DataFrame([{"Product": PRODUCT_LABEL[r["product"]], "Accounts (denominator)": r["accounts"], "Median days": r["median_days"] if r["median_days"] is not None else "n/a"} for r in sd["time_to_first"]]),
                  hide_index=True, width="stretch")
-    st.markdown("**Seeded human handoffs**")
+    st.markdown("**Sample support tasks**")
     st.dataframe(pd.DataFrame(sd["handoffs"]).rename(columns={"team": "Team", "status": "Status", "n": "Tasks"}), hide_index=True)
     st.markdown("**Meeting preparation history (sample)** · past meetings with a prepared brief")
     st.dataframe(pd.DataFrame([
@@ -95,13 +96,13 @@ def _tab_seed(db):
         ("Marked discussed", tm["discussed"], f"of {tm['accepted'] + tm['edited']} accepted or edited"), ("Learners enrolled / started / completed", f"{tm['enrolled']} / {tm['started']} / {tm['completed']}", "synthetic")],
         columns=["Measure", "Value", "Denominator"]), hide_index=True, width="stretch")
     flat = [{"Product": PRODUCT_LABEL[p], "State": STATE_LABEL[s], "Journeys": n} for p, d in sd["states"].items() for s, n in d.items()]
-    fig = px.bar(pd.DataFrame(flat), x="Journeys", y="State", color="Product", orientation="h", title="Seeded journey states (synthetic)",
+    fig = px.bar(pd.DataFrame(flat), x="Journeys", y="State", color="Product", orientation="h", title="Journey states in the sample data",
                  color_discrete_sequence=["#8b8cf8", "#5eead4", "#fbbf77"], template="plotly_dark")
     fig.update_layout(height=340, margin=dict(l=0, r=0, t=40, b=0), yaxis=dict(categoryorder="total ascending"), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
     st.plotly_chart(fig, width="stretch")
     with st.expander("How a real pilot could measure usefulness"):
         st.markdown(
-            "Synthetic numbers cannot show that either workflow changes outcomes. A pilot could:\n"
+            "Sample numbers cannot show that either workflow changes outcomes. A pilot could:\n"
             "- **Onboarding:** randomly assign comparable eligible accounts to agent-assisted and business-as-usual groups (or hold some out), pre-register the main metric "
             "(for example, share reaching the first milestone within a set number of days) and review opt-outs, complaints and escalations as guardrails.\n"
             "- **Meeting preparation usefulness:** ask reviewers to rate each recommendation, and track how often briefs are opened, accepted, edited and discussed.\n"
@@ -157,16 +158,17 @@ def _tab_system(db):
     with st.expander("Criteria definitions"):
         for k, d in {**E.CRITERIA, **E.REC_CRITERIA}.items():
             st.markdown(f"- **{k.replace('_', ' ').title()}** — {d}")
-    with st.expander("Optional: live AI check"):
-        st.markdown("Runs scenarios against a real model and checks policy and state rules (not prose quality). Requires your own key and spends model calls.")
-        st.code("export ANTHROPIC_API_KEY=...\npython -m cso.evaluation --live", language="bash")
+    if flags.advanced():
+        with st.expander("Optional: live AI check"):
+            st.markdown("Runs scenarios against a real model and checks policy and state rules (not prose quality). Requires your own key and spends model calls.")
+            st.code("export ANTHROPIC_API_KEY=...\npython -m cso.evaluation --live", language="bash")
 
 
 def render():
     db = session.get_db()
     session.show_flash()
     st.title("Evaluation and outcomes")
-    st.caption("Three separate views. Nothing here is a measured business result: all customers and history are synthetic.")
+    st.caption("Three separate views. Nothing here is a measured business result: all customers and history are sample data.")
     if st.session_state.get("tab_eval") not in TABS:
         st.session_state["tab_eval"] = TABS[0]
     view = st.radio("View", TABS, horizontal=True, key="tab_eval", label_visibility="collapsed")

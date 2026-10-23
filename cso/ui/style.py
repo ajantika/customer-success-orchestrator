@@ -93,7 +93,7 @@ def show_sources(srcs: list[dict], key: str):
 def bubble(row: dict):
     actor = row["actor"]
     cls = {"customer": "cso-customer", "agent": "cso-agent", "human": "cso-human"}.get(actor, "cso-system")
-    who = {"customer": "Customer", "agent": "Onboarding agent", "human": "Human operator", "system": "System"}[actor]
+    who = {"customer": "Customer", "agent": "Assistant", "human": "Support team", "system": "System"}[actor]
     body = row["body"]
     subject = None
     if body.startswith("Subject: "):
@@ -109,7 +109,7 @@ def bubble(row: dict):
 
 # ------------------------------------------------------------ selection ---
 def _on_acct():
-    st.session_state["acct"] = st.session_state.get("w_acct")
+    session.select(st.session_state.get("w_acct"))  # choosing another customer also leaves a guided walkthrough, keeping its progress
 
 
 def _on_prod():
@@ -149,3 +149,11 @@ def account_picker(db, with_product: bool = True) -> tuple[str | None, str | Non
 def footer_label():
     st.caption("Independent portfolio prototype • Sample data")
 
+
+
+def context_line(db, aid: str, prod: str | None = None, label: str | None = None):
+    """Show which customer (and product) this screen is about."""
+    name = db.one("SELECT name FROM accounts WHERE id=?", (aid,))["name"]
+    from ..models import PRODUCT_LABEL
+    tail = f" · Product: {PRODUCT_LABEL[prod]}" if prod else ""
+    st.markdown(f"**Customer: {name}**{tail}" + (f" &nbsp; <span class='cso-pill'>{html.escape(label)}</span>" if label else ""), unsafe_allow_html=True)

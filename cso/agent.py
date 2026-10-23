@@ -485,7 +485,7 @@ class ScriptedDecider:
             return Finish(f"Handoff FAILED ({h.result['error']['code']}); customer told nothing was created.")
         d = h.result["data"]
         if d["existing"]:
-            yield reply(hi + f"Our {d['team']} team already has this open as {d['task_id']}, so I haven't created a duplicate. They have your earlier steps and I'll share updates here.", why="An open task already exists.")
+            yield reply(hi + f"Support is already working on this issue ({d['task_id']}, with our {d['team']} team). Setup reminders are paused. I've added your latest message to that task, so I haven't created a duplicate, and I'll share updates here.", why="An open task already exists.")
             return Finish(f"Open task {d['task_id']} already exists; duplicate escalation prevented.")
         p = yield Call("pause_journey", {"account_id": self.aid, "journey_id": self.jid, "reason": "awaiting_human"}, "Pause reminders so we don't conflict with the human team.")
         paused = " I've paused setup reminders until they respond." if p.result["ok"] else ""

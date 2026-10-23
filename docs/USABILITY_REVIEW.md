@@ -43,3 +43,23 @@
 - The final onboarding step is "Simulate completed setup" with helper text; a typed completion claim creates no events (workflow check 35 and a UI test).
 - Support tasks show the problem, what was tried and who owns the next step; resolving uses the single "Save note and resolve" form and says: "The support issue is resolved. The assistant will now check whether the customer has completed setup."
 - One short result message after each action, with "what happened and why" in a Details section.
+
+## Changes after the third review round (customer context and feedback)
+**Causes found** (reproduced before fixing):
+- The Setup support page forced Maple Design every time a walkthrough was active, and the walkthrough stayed active after another customer was chosen, so navigation silently snapped back to Maple.
+- The Support tasks page listed every customer's open tasks and defaulted to the highest-priority one, ignoring the selected customer. Its task selector was tucked into an unrelated section.
+- The conversation was a fixed-height scrolling box, so a new reply could sit out of view; the only confirmation was a toast.
+- Result messages were kept in one global slot, so a message about Maple could appear under another customer or on Meeting preparation.
+- When a support task already existed, a repeated escalation reused it but did not attach the new customer message or say clearly what was happening.
+
+**Fixes:**
+- One selected customer and product across Customer workspace, Setup support and Support tasks. Choosing another customer leaves the guided walkthrough but keeps its progress ("Continue where you left off" resumes it). "Exit walkthrough" and "Back to overview" are explicit; the page is labelled "Guided example: Maple Design." while a walkthrough is active.
+- Support tasks default to the selected customer's tasks, show "No support tasks for [customer]." when there are none, and offer "View all support tasks" as a separate choice that never switches the selected customer. A visible selector appears when there are several tasks. "Open support task" opens that exact task.
+- A "Latest exchange" panel always shows the newest customer reply and the assistant's response; the full conversation is below, newest first. A repeated click within two seconds is treated as an accidental double click.
+- A repeated escalation reuses the task, says "Support is already working on this issue (TSK-006, Maple Design). Setup reminders are paused.", offers "Open support task", and attaches the new customer message to the task as a follow-up.
+- Resolution form: "What was fixed?", an inline error that keeps the typed text, "Save note and mark resolved", and a confirmation naming the customer. "Continue [customer]'s setup" returns to the same customer and product and shows the next remaining step; "Back to [customer]'s setup" leaves the task untouched.
+- The unified timeline has a description, plain filter names (Customer, Assistant, Support team, System), readable status entries, and a short empty state with a working button.
+- Results are scoped to the page and customer they belong to.
+- Wording: "sample" instead of "synthetic/fictional" in visitor-facing text; "Sample history"; the live-AI check is hidden unless `CSO_ADVANCED=1`.
+
+**Verified in the browser** (local server, fresh session): customer switching across Customer workspace, Setup support and Support tasks (including a customer with no tasks and "View all support tasks"); the full Maple support flow with visible replies, task reuse, validation errors, resolution and return; the timeline; leaving the walkthrough by choosing another customer; and the Northstar meeting flow with no support notifications. **Not verified:** the deployed site, and any independent user.
