@@ -59,7 +59,7 @@ def _tab_session(db):
                  hide_index=True, width="stretch")
     if m["error_codes"]:
         st.dataframe(pd.DataFrame(m["error_codes"]).rename(columns={"error": "Code", "n": "Count", "kind": "Type"}), hide_index=True)
-    st.markdown("#### Account Team assistant")
+    st.markdown("#### Meeting preparation")
     ar = [
         ("Eligible meetings", tm["eligible"], f"Scheduled meetings in the next 14 days ({tm['scope']}).", "Count"),
         ("Briefs generated", tm["briefs_generated"], "Distinct meetings with a saved brief.", f"{tm['eligible']} eligible meetings"),
@@ -68,7 +68,7 @@ def _tab_session(db):
         ("Accepted / edited", f"{tm['accepted']} / {tm['edited']}", "Distinct recommendations accepted or edited (an edited one may also be accepted).", f"{tm['reviewed']} reviewed"),
         ("Dismissed / deferred", f"{tm['dismissed']} / {tm['deferred']}", "Distinct recommendations dismissed or deferred, each with a reason.", f"{tm['reviewed']} reviewed"),
         ("Marked discussed", tm["discussed"], "Recommendations the account team says were raised with the customer.", f"{tm['accepted'] + tm['edited']} accepted or edited"),
-        ("Learners enrolled / started / completed", f"{tm['enrolled']} / {tm['started']} / {tm['completed']}", "Synthetic customer learning updates, tracked separately from the Account Team's decision.", "Learners"),
+        ("Learners enrolled / started / completed", f"{tm['enrolled']} / {tm['started']} / {tm['completed']}", "Sample customer learning updates, tracked separately from the Account Team's decision.", "Learners"),
     ]
     st.dataframe(pd.DataFrame(ar, columns=["Measure", "Value", "Definition", "Denominator"]), hide_index=True, width="stretch")
     if not m["runs"] and not tm["briefs_generated"]:
@@ -88,7 +88,7 @@ def _tab_seed(db):
                  hide_index=True, width="stretch")
     st.markdown("**Seeded human handoffs**")
     st.dataframe(pd.DataFrame(sd["handoffs"]).rename(columns={"team": "Team", "status": "Status", "n": "Tasks"}), hide_index=True)
-    st.markdown("**Account Team history (synthetic)** · past meetings with a prepared brief")
+    st.markdown("**Meeting preparation history (sample)** · past meetings with a prepared brief")
     st.dataframe(pd.DataFrame([
         ("Past meetings", tm["eligible"], "Completed meetings in the seeded history"), ("Briefs generated / viewed", f"{tm['briefs_generated']} / {tm['briefs_viewed']}", f"of {tm['eligible']} meetings"),
         ("Accepted / edited / dismissed / deferred", f"{tm['accepted']} / {tm['edited']} / {tm['dismissed']} / {tm['deferred']}", f"of {tm['recs']} recommendations"),
@@ -104,7 +104,7 @@ def _tab_seed(db):
             "Synthetic numbers cannot show that either workflow changes outcomes. A pilot could:\n"
             "- **Onboarding:** randomly assign comparable eligible accounts to agent-assisted and business-as-usual groups (or hold some out), pre-register the main metric "
             "(for example, share reaching the first milestone within a set number of days) and review opt-outs, complaints and escalations as guardrails.\n"
-            "- **Account Team usefulness:** ask reviewers to rate each recommendation, and track how often briefs are opened, accepted, edited and discussed.\n"
+            "- **Meeting preparation usefulness:** ask reviewers to rate each recommendation, and track how often briefs are opened, accepted, edited and discussed.\n"
             "- **Preparation time:** time a sample of meeting preparations with and without the brief, using the same meeting types.\n"
             "- **Field adoption:** compare which teams and roles use the page week over week.\n"
             "- **Downstream learning:** follow enrolment and completion for customers whose team discussed a recommendation versus comparable meetings where it was not raised. "
@@ -127,7 +127,7 @@ def _tab_system(db):
         st.markdown("**Not evaluated** in this session yet. The same checks run with `pytest`.")
     st.markdown("#### Response quality (human scoring)")
     st.caption("Scores are only what a person records here. There are no automated or invented scores.")
-    st.radio("What are you rating?", ["Agent message", "Account Team recommendation"], horizontal=True, key="rate_kind")
+    st.radio("What are you rating?", ["Agent message", "Meeting suggestion"], horizontal=True, key="rate_kind")
     kind = "message" if st.session_state.get("rate_kind", "Agent message") == "Agent message" else "recommendation"
     if kind == "message":
         items = db.q("SELECT id, body FROM interactions WHERE origin='session' AND actor='agent' AND kind='message' ORDER BY rid DESC")

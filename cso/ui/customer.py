@@ -29,7 +29,7 @@ def render():
     contact = rules.admin_contact(db, aid)
     now = db.now()
     st.markdown(f"#### {acc['name']} &nbsp; <span class='cso-pill'>{acc['segment']}</span> <span class='cso-pill'>{(acc['lifecycle'] or '').capitalize()} stage</span> "
-                f"<span class='cso-pill'>Owner: {acc['owner'] or 'unassigned'}</span> <span class='cso-pill'>Solutions architect: {acc['solutions_architect'] or 'unassigned'}</span>", unsafe_allow_html=True)
+                f"<span class='cso-pill'>Owner: {acc['owner'] or 'unassigned'}</span> <span class='cso-pill'>Technical lead: {acc['solutions_architect'] or 'unassigned'}</span>", unsafe_allow_html=True)
     st.markdown(f"**Customer goal:** {acc['goal'] or '_missing_'}")
     st.caption(f"Product data last synced: {when(acc['data_refreshed_at'])} · Demo clock: {when(now)}")
 

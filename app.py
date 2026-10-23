@@ -18,7 +18,7 @@ from cso import flags  # noqa: E402
 nav.PAGES.update({
     "overview": st.Page(overview.render, title="Overview", icon=":material/dashboard:", url_path="overview", default=True),
     "customer": st.Page(customer.render, title="Customer workspace", icon=":material/person:", url_path="customer"),
-    "agent": st.Page(agent_page.render, title="Customer onboarding", icon=":material/smart_toy:", url_path="agent"),
+    "agent": st.Page(agent_page.render, title="Setup support", icon=":material/smart_toy:", url_path="agent"),
     "queue": st.Page(queue_page.render, title="Support tasks", icon=":material/support_agent:", url_path="queue"),
     "team": st.Page(team_page.render, title="Meeting preparation", icon=":material/event_note:", url_path="team"),
     "eval": st.Page(eval_page.render, title="Evaluation", icon=":material/fact_check:", url_path="evaluation"),

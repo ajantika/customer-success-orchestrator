@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 
 from ..format import when
 
@@ -58,6 +59,38 @@ def evidence_lines(parsed: list[tuple[dict, dict]]) -> list[str]:
     return ev
 
 
+def headline(summary: str, trigger: str, tone: str) -> str:
+    """A one-sentence result in plain words. The full summary stays in the details section."""
+    t = summary
+    rules = [
+        (r"^Sent guidance for", "The assistant sent setup guidance to the customer."),
+        (r"asked a clarifying question", "The assistant asked which error occurred."),
+        (r"^Sent guidance grounded in", "The assistant sent the matching troubleshooting steps."),
+        (r"^Created TSK-\d+", "A support task was created and reminders were paused."),
+        (r"^Handoff FAILED", "The support task could not be created, so the customer was told nothing was created."),
+        (r"already exists; duplicate", "A support task already exists, so no duplicate was created."),
+        (r"Open support request .* exists", "A support request is already open, so only a status reply was sent."),
+        (r"^Support task resolved, but onboarding is not complete", "The assistant checked setup and updated the customer. Onboarding is not complete yet."),
+        (r"^Verified completion", "The assistant confirmed setup is complete and stopped the reminders."),
+        (r"^Fresh progress check: all milestones complete", "The assistant confirmed setup is complete and stopped the reminders."),
+        (r"Customer said setup is complete but product events disagree", "The assistant did not see the setup steps finished, so the journey stays open."),
+        (r"^Customer opted out", "The assistant stopped all messages, as the customer asked."),
+        (r"rollout is later; journey paused", "The assistant paused messages until the customer's rollout date."),
+        (r"^Rejected a message that tried to override", "The assistant declined that request."),
+        (r"^Documentation did not support", "The assistant said it could not find an answer and offered to involve a person."),
+        (r"^Sent getting-started guidance", "The assistant sent getting-started guidance."),
+        (r"^No outreach", "No message was sent: the rules say to wait."),
+        (r"^Holding:", "No message was sent: support is already working on this."),
+        (r"^Saved recommendation", "A suggested next step was prepared for review. Nothing was sent to the customer."),
+        (r"already exists for this meeting", "The suggested next step already exists, so nothing was duplicated."),
+        (r"^The meeting is cancelled", "The meeting is cancelled, so no suggestion was prepared."),
+    ]
+    for pat, msg in rules:
+        if re.search(pat, t):
+            return msg
+    return t if len(t) < 140 else t[:137] + "…"
+
+
 def from_run(db, run_id: str) -> dict:
     run = db.one("SELECT * FROM agent_runs WHERE id=?", (run_id,))
     ex = db.q("SELECT * FROM tool_executions WHERE run_id=? ORDER BY rid", (run_id,))
@@ -85,4 +118,5 @@ def from_run(db, run_id: str) -> dict:
         last = next((e["rationale"] for e, r in reversed(parsed) if e["rationale"]), "")
         why = last or "The rules did not allow or require any action."
     tone = "error" if run["outcome"] == "error" else "warning" if run["outcome"] == "step_limit" else "success"
-    return {"found": found[:4], "did": run["summary"] + (f" Error: {run['error']}" if run["error"] else ""), "why": why, "tone": tone, "run_id": run_id}
+    full = run["summary"] + (f" Error: {run['error']}" if run["error"] else "")
+    return {"found": found[:4], "did": full, "short": headline(run["summary"], run["trigger"], tone), "why": why, "tone": tone, "run_id": run_id}
