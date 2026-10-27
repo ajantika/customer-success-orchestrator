@@ -11,7 +11,7 @@ from .. import rules, services as S, session
 from ..format import status, when
 from ..models import PRODUCT_LABEL, STATE_LABEL
 from .. import flags
-from . import narrate, style, walkthroughs
+from . import narrate, style
 
 FEATURED = "ACC-001"
 SCENARIOS = [  # (button label, message the customer writes, creates sample events first)
@@ -86,35 +86,6 @@ def _open_handoff(task_id: str):
     session.open_task(task_id)
 
 
-# ----------------------------------------------------------------- guided ---
-def _steps(db):
-    j = db.one("SELECT id, state FROM journeys WHERE account_id=? AND product='docs'", (FEATURED,))
-    q = lambda sql, p=(): db.one(sql, p)["n"] > 0
-    task = db.one("SELECT id FROM human_tasks WHERE account_id=? AND origin='session' ORDER BY id DESC LIMIT 1", (FEATURED,))
-    choose = "Choose a customer reply to see how the assistant responds."
-    reply = lambda text, complete=False: (lambda: _reply(db, FEATURED, j["id"], "docs", text, complete=complete))
-    return [
-        dict(title="Check Maple's setup", prompt="The assistant looks at Maple's plan, progress and history to decide whether to reach out.",
-             done=q("SELECT COUNT(*) n FROM interactions WHERE account_id=? AND actor='agent' AND origin='session' AND json_extract(signals,'$.message_kind')='proactive'", (FEATURED,)),
-             label="Check Maple's setup", action=lambda: _check(db, FEATURED, j["id"])),
-        dict(title="Jordan replies", prompt=choose,
-             done=q("SELECT COUNT(*) n FROM interactions WHERE account_id=? AND origin='session' AND json_extract(signals,'$.intent')='issue_directory'", (FEATURED,)),
-             label="The directory connection is failing.", action=reply("The directory connection is failing.")),
-        dict(title="Jordan replies again", prompt=choose,
-             done=q("SELECT COUNT(*) n FROM interactions WHERE account_id=? AND origin='session' AND json_extract(signals,'$.error_type')='authentication'", (FEATURED,)),
-             label="We see an authentication error.", action=reply("We see an authentication error.")),
-        dict(title="Jordan replies again", prompt=choose,
-             done=q("SELECT COUNT(*) n FROM human_tasks WHERE account_id=? AND origin='session'", (FEATURED,)),
-             label="We already tried those steps.", action=reply("We already tried those steps.")),
-        dict(title="Resolve the support issue", prompt="Support needs to investigate this issue. Open the task and record how it was resolved. The assistant will then check whether Maple has completed setup.",
-             done=q("SELECT COUNT(*) n FROM agent_runs WHERE account_id=? AND trigger='progress_check'", (FEATURED,)),
-             label=f"Open Maple's support task · {task['id']}" if task else "Open Maple's support task", action=lambda: _open_handoff(task["id"]) if task else None,
-             disabled_reason=None if task else "Available once a support task has been created in the previous step."),
-        dict(title="Finish setup", prompt="Maple finishes setting up. The assistant checks product events before closing the journey.", done=j["state"] == "completed",
-             label="Simulate completed setup", helper="Adds sample product events so the assistant can verify completion.", action=reply("Setup is now complete.", complete=True)),
-    ]
-
-
 # --------------------------------------------------------------- activity ---
 def _details(db, aid):
     runs = db.q("SELECT * FROM agent_runs WHERE account_id=? AND trigger!='meeting_prep' ORDER BY id DESC LIMIT 12", (aid,))
@@ -146,73 +117,82 @@ def _details(db, aid):
 
 def render():
     db = session.get_db()
-    if st.session_state.get("guided") == "onboarding" and st.session_state.get("acct") != FEATURED:
-        st.session_state.pop("guided", None)       # never force the walkthrough's customer back onto someone who chose another
-    guided = st.session_state.get("guided") == "onboarding"
     st.title("Setup support")
+    st.caption("See how the assistant helps this customer complete setup and routes blockers to Support.")
     st.session_state.setdefault("channel_val", "email")
-    steps = _steps(db) if guided else None
-    cur = walkthroughs.panel("onboarding", steps) if guided else None
-    finished = guided and cur is None
-    if guided:
-        aid, jid = FEATURED, db.one("SELECT id FROM journeys WHERE account_id=? AND product='docs'", (FEATURED,))["id"]
-        session.select(FEATURED, "docs")
-    else:
-        st.caption("See how the assistant checks a customer's setup, offers guidance, reads replies and involves support. Uses prepared responses; no AI model is called.")
-        aid, jid = style.account_picker(db)
-        if not aid or not jid:
-            st.info("**Start here:** choose a customer above, or go to the Overview and choose **Explore setup support**.")
-            session.show_flash()
-            session.show_action("agent")
-            return
+    aid, jid = style.account_picker(db)
+    if not aid:
+        st.info("**Start here:** choose a customer above, or pick one on the Overview. Maple Design is a good example of a setup blocker.")
+        session.show_flash()
+        session.show_action("agent")
+        return
+    name = db.one("SELECT name FROM accounts WHERE id=?", (aid,))["name"]
+    if not jid:
+        style.context_line(db, aid)
+        st.info(f"{name} has not bought anything yet, so there is no setup to support.")
+        return
     prod = db.one("SELECT product FROM journeys WHERE id=?", (jid,))["product"]
     j = db.one("SELECT * FROM journeys WHERE id=?", (jid,))
-    style.context_line(db, aid, prod, "Guided example: Maple Design." if guided else None)
+    style.context_line(db, aid, prod)
     pr = rules.progress(db, aid, prod)
     st.caption(f"Setup progress: {pr['done_count']} of {pr['total']} steps. " + (f"Next step: {pr['next_milestone']['customer_label']}." if pr["next_milestone"] else "Setup is complete.") + f" Journey: {STATE_LABEL[j['state']]}.")
+    dec = rules.plain_decision(db, jid)
+    st.markdown(f"**Where things stand.** {dec['headline']}")
     session.show_flash()
-    session.show_action("agent", task_button=False)   # the task link is offered once, below (or as the walkthrough's step button)
-    if not guided:
-        el = rules.evaluate_outreach(db, jid)
-        st.caption("May the assistant contact this customer on its own right now? " + ("**Yes.**" if el.allowed else "**Not right now:** " + narrate.PLAIN.get(el.blockers[0].code, el.blockers[0].message) + "."))
-        st.button("Check this customer's setup", type="primary", on_click=_check, args=(db, aid, jid),
-                  help="The assistant looks at the customer's goal, progress and history, then decides whether to send help. It may decide to do nothing.")
-        task = db.one("SELECT id, status FROM human_tasks WHERE journey_id=? AND status!='resolved' ORDER BY created_at DESC LIMIT 1", (jid,))
-        if task:
-            c1, c2 = st.columns([4, 2])
-            c1.info(f"Support is working on this customer's issue ({task['id']}, {status(task['status']).lower()}).")
-            c2.button(f"Open {db.one('SELECT name FROM accounts WHERE id=?', (aid,))['name'].split()[0]}'s support task · {task['id']}", on_click=_open_handoff, args=(task["id"],), type="primary", width="stretch")
-    if finished:
-        walkthroughs.summary_onboarding(db)
+
+    st.markdown("##### Proactive outreach: the system starts a conversation")
+    st.caption("The assistant reaches out only when the rules allow it: after the planned rollout date, when setup has stalled, within message limits, and with no open support blocker.")
+    st.button("Check this customer's setup", type="primary", on_click=_check, args=(db, aid, jid),
+              help="The assistant looks at the customer's goal, progress and history, then decides whether to send help. It may decide to do nothing.")
+
+    st.markdown("##### Incoming customer request: the customer asks for help")
+    st.caption("When a customer writes in, the assistant can respond even if proactive reminders are paused.")
+    can_reply = j["state"] not in ("completed", "opted_out")
+    st.markdown("**Try a customer response**")
+    st.markdown("Select an example to see how the assistant responds. You are simulating the customer's reply for this demo.")
+    cols = st.columns(2)
+    for i, (label, text, complete) in enumerate(SCENARIOS):
+        cols[i % 2].button(label, key=f"sc{i}", width="stretch", on_click=_reply, args=(db, aid, jid, prod, text, complete), disabled=not can_reply)
+    if not can_reply:
+        st.caption("This journey is " + ("completed" if j["state"] == "completed" else "closed because the customer opted out") + ", so the assistant will not reply to new messages here.")
+    else:
+        st.caption("To see a support handoff, select these in order: “The directory connection is failing.”, then “We see an authentication error.”, then “We already tried those steps.”")
+    with st.expander("More ways to try it"):
+        st.button("Simulate completed setup", key="sc_done", on_click=_reply, args=(db, aid, jid, prod, "Setup is now complete.", True), disabled=not can_reply,
+                  help="Adds sample product events so the assistant can verify completion.")
+        st.caption("This adds sample product events, which the assistant checks before closing the journey. A completion claim that you type yourself adds no events, so the assistant keeps the journey open.")
+        st.selectbox("Or try an example, including edge cases", EXAMPLES, key="example_pick", on_change=_example, format_func=lambda x: x or "Choose an example…")
+        st.text_area("Write the customer's message", key="reply_text", height=80, max_chars=1000)
+        st.button("Send message", on_click=_send_typed, args=(db, aid, jid, prod), disabled=not can_reply or not st.session_state.get("reply_text", "").strip(),
+                  help=None if st.session_state.get("reply_text", "").strip() else "Type a message or pick an example first.")
+
+    session.show_action("agent", task_button=False)
+    task = db.one("SELECT id, status FROM human_tasks WHERE journey_id=? AND status!='resolved' ORDER BY created_at DESC LIMIT 1", (jid,))
+    if task:
+        c1, c2 = st.columns([3, 2])
+        c1.info(f"Support is working on this customer's issue ({task['id']}, {status(task['status']).lower()}). Setup reminders are paused.")
+        c2.button(f"Open {name.split()[0]}'s support task · {task['id']}", on_click=_open_handoff, args=(task["id"],), type="primary", width="stretch")
 
     msgs = db.q("SELECT * FROM interactions WHERE account_id=? AND kind IN ('message','human_update') ORDER BY rid DESC LIMIT 40", (aid,))
     texts = [m for m in msgs if m["kind"] == "message"]
     st.markdown("##### Latest exchange")
-    st.caption("The newest customer reply and the assistant's response. This stays on screen after every click.")
     if not texts:
-        st.info("Nothing here yet. Check this customer's setup to see the assistant's first message." if not guided else "Nothing here yet. Start with the first step.")
+        st.caption("Nothing here yet. Check this customer's setup, or select a customer response above.")
     else:
+        st.caption("The newest customer reply and the assistant's response. This stays on screen after every click.")
         i = next((n for n, m in enumerate(texts) if m["actor"] == "customer"), None)
-        latest = list(reversed(texts[: i + 1])) if i is not None else texts[:1]
-        for m in latest:
+        for m in (list(reversed(texts[: i + 1])) if i is not None else texts[:1]):
             style.bubble(m)
     with st.expander(f"Full conversation, newest first ({len(msgs)})"):
-        with st.container(height=380, border=True):
-            for m in msgs:
-                style.bubble(m)
-    with st.expander("More customer replies" if guided else "Choose a customer reply", expanded=not guided):
-        st.markdown("Choose a customer reply to see how the assistant responds.")
-        cols = st.columns(2)
-        for i, (label, text, complete) in enumerate(SCENARIOS):
-            cols[i % 2].button(label, key=f"sc{i}", width="stretch", on_click=_reply, args=(db, aid, jid, prod, text, complete))
-        st.button("Simulate completed setup", key="sc_done", width="stretch", on_click=_reply, args=(db, aid, jid, prod, "Setup is now complete.", True),
-                  help="Adds sample product events so the assistant can verify completion.")
-        st.caption("“Simulate completed setup” adds sample product events, which the assistant checks before closing the journey. "
-                   "A completion claim that you type yourself adds no events, so the assistant keeps the journey open.")
-        st.selectbox("Or try an example, including edge cases", EXAMPLES, key="example_pick", on_change=_example, format_func=lambda x: x or "Choose an example…")
-        st.text_area("Write the customer's message", key="reply_text", height=80, max_chars=1000)
-        st.button("Send message", on_click=_send_typed, args=(db, aid, jid, prod), disabled=not st.session_state.get("reply_text", "").strip(),
-                  help=None if st.session_state.get("reply_text", "").strip() else "Type a message or pick an example first.")
+        if not msgs:
+            st.caption("No messages yet.")
+        else:
+            with st.container(height=380, border=True):
+                for m in msgs:
+                    style.bubble(m)
+    with st.popover("Reset this customer's demo activity"):
+        st.markdown(f"This undoes what you did with **{name}** in this session: messages, support tasks and setup progress. Other customers are not changed.")
+        st.button(f"Yes, reset {name}", key="reset_cust_agent", on_click=session.reset_customer, args=(aid,), type="primary")
     with st.expander("Technical details and run history"):
         _details(db, aid)
     if flags.advanced():

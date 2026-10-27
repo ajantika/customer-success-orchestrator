@@ -136,7 +136,7 @@ def simulate_learning(db: DB, rec_id: str, stage: str, count: int = 2) -> int:
         done += 1
     if done:
         db.insert("learning_outcomes", rec_id=rec_id, account_id=r["account_id"], stage=stage, learner_count=done, ts=now)
-        db.timeline(r["account_id"], "system", "event", f"Synthetic learning update: {done} learner(s) {stage} {cid}")
+        db.timeline(r["account_id"], "system", "event", f"Sample learning update: {done} learner(s) {stage} {cid}")
     return done
 
 

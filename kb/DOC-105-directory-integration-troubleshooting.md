@@ -16,4 +16,4 @@ Open the sync log in Integrations and check the filter. Groups with more than 5,
 Docs needs a unique email attribute for every person. Entries without an email value are skipped. Map the email field in Directory settings, then choose Run sync.
 
 ## When to contact support
-If you have confirmed credentials, network access and attribute mapping and the connection still fails, contact support with the sync log and the exact error message. See DOC-108.
+If you have confirmed credentials, network access and attribute mapping and the connection still fails, contact support with the sync log and the exact error message. See [[DOC-108]].

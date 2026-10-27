@@ -4,7 +4,7 @@ Setup: `streamlit run app.py`. The sidebar badge says **Demo mode** (no AI model
 
 | Time | Do this | What it proves |
 |---|---|---|
-| 0:00 | Overview: read the two entry points and the counts, then click **Explore setup support** | Opens Maple's Setup support page with a guided bar ("Step 1 of 6") and the customer already selected |
+| 0:00 | Overview: read the two entry points and the counts, then select **Maple Design** (or the Maple example) and click **Open setup support** | Opens Maple's Setup support page with a guided bar ("Step 1 of 6") and the customer already selected |
 | 0:30 | Customer workspace (sidebar): open "Why eligible?" for Docs | Eligibility is explainable and based on the customer's own plan. Support shows "Paused until rollout" |
 | 1:00 | Setup support page → **Check Maple's setup** | Stalled Docs setup becomes a message with a cited source. Open **What the agent did** to see what it noticed and checked. The customer selection stays put |
 | 1:30 | *Optional:* **Leave the guided demo**, click **Run onboarding check** again, then reopen the guided demo from Overview only if you want a clean run | Nothing new is sent (frequency limit). Reruns never duplicate |

@@ -21,7 +21,7 @@ nav.PAGES.update({
     "agent": st.Page(agent_page.render, title="Setup support", icon=":material/smart_toy:", url_path="agent"),
     "queue": st.Page(queue_page.render, title="Support tasks", icon=":material/support_agent:", url_path="queue"),
     "team": st.Page(team_page.render, title="Meeting preparation", icon=":material/event_note:", url_path="team"),
-    "eval": st.Page(eval_page.render, title="Evaluation", icon=":material/fact_check:", url_path="evaluation"),
+    "eval": st.Page(eval_page.render, title="Workflow quality checks", icon=":material/fact_check:", url_path="evaluation"),
 })
 if flags.advanced():
     nav.PAGES["config"] = st.Page(config_page.render, title="Journey configuration", icon=":material/tune:", url_path="config")
@@ -64,7 +64,7 @@ with st.sidebar:
         c = st.columns(3)
         for col, d in zip(c, (1, 3, 7)):
             col.button(f"+{d}d", key=f"adv{d}", on_click=_advance, args=(d,), width="stretch")
-    st.button("Reset all demo data", on_click=session.reset_demo, width="stretch", help="Resets both walkthroughs and every change. To reset one customer only, use “Restart this walkthrough”.")
+    st.button("Reset all demo data", on_click=session.reset_demo, width="stretch", help="Resets every change and clears the selected customer. To reset one customer only, use “Reset this customer's demo activity” on a customer page.")
     st.divider()
     style.footer_label()
     st.caption("Your changes are private to this session and reset when it ends.")

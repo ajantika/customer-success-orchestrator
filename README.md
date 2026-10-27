@@ -22,7 +22,7 @@ Customer information is often spread across product reports, support systems and
 | Sales and customer success | Prepare relevant questions and recommendations before a customer meeting |
 | Product and operations | Inspect workflow behaviour, review decisions and feedback |
 
-## Two walkthroughs
+## Two ways to explore a customer
 
 **1. Help a customer complete setup (example: Maple Design)**
 
@@ -41,7 +41,7 @@ Customer information is often spread across product reports, support systems and
 4. A reviewer can accept, edit, dismiss or defer the suggestion, with reasons. The original wording is kept beside any edit.
 5. Record whether it was discussed. Customer enrolment and learning progress are tracked separately; accepting a suggestion never enrols anyone.
 
-Start either one from the Overview page of the demo. Written scripts: [Maple Design](docs/DEMO_SCRIPT_MAPLE.md) · [Northstar Retail](docs/DEMO_SCRIPT_NORTHSTAR.md).
+Start by choosing a customer on the Overview page; nothing is preselected. Then choose **Open setup support** or **Prepare customer brief**. Written scripts: [Maple Design](docs/DEMO_SCRIPT_MAPLE.md) · [Northstar Retail](docs/DEMO_SCRIPT_NORTHSTAR.md).
 
 ## Key product decisions
 
@@ -91,11 +91,11 @@ More detail: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Evaluation and verified checks
 
-Verified on **23 October 2026** (version `87d57d8` of `main`, re-run after the wording changes in this update; Python 3.13.5, Streamlit 1.57.0):
+Verified on **27 October 2026** (customer-first update, before merge; Python 3.13.5, Streamlit 1.57.0):
 
-- `pytest`: **77 tests pass**: 41 workflow and unit tests, 19 UI click-through tests, 13 customer-context regression tests, 4 tests of the optional model adapter with a fake client.
+- `pytest`: **77 tests pass**: workflow and unit tests, UI click-through tests, customer-context regression tests, and tests of the optional model adapter with a fake client.
 - `python -m cso.evaluation`: **35 of 35 workflow checks pass**. They cover outreach before rollout, opt-outs, frequency limits, duplicate messages, tasks and recommendations, completion and reminders, failed handoffs reported honestly, account isolation, unsupported claims, prerequisites and paid options, dismissed and deferred suggestions, and review decisions staying separate from learning outcomes.
-- Browser walkthroughs of both workflows were run locally against that version.
+- Browser checks of customer selection, setup support and the customer brief were run locally against that version.
 
 What is **not** evaluated: language quality (the app can record human ratings, none are recorded here), the optional model adapter against a real model, and any business outcome. Details and per-check evidence: [docs/EVALUATION.md](docs/EVALUATION.md) · usability notes: [docs/USABILITY_REVIEW.md](docs/USABILITY_REVIEW.md).
 

@@ -63,3 +63,12 @@
 - Wording: "sample" instead of "sample/sample" in visitor-facing text; "Sample history"; the live-AI check is hidden unless `CSO_ADVANCED=1`.
 
 **Verified in the browser** (local server, fresh session): customer switching across Customer workspace, Setup support and Support tasks (including a customer with no tasks and "View all support tasks"); the full Maple support flow with visible replies, task reuse, validation errors, resolution and return; the timeline; leaving the walkthrough by choosing another customer; and the Northstar meeting flow with no support notifications. **Not verified:** the deployed site, and any independent user.
+
+## Customer-first update (27 October 2026)
+
+- Nothing is preselected. The Overview asks the visitor to select a customer, shows a short preview, then offers **Open setup support** or **Prepare customer brief**. Both use the visibly selected customer.
+- One shared selection across pages. Changing customer clears the previous customer's product, conversation, task and recommendation state.
+- Guided walkthroughs were removed. Per-customer reset replaces "Restart this walkthrough".
+- The brief has five sections (goal, what we noticed with time periods, what to confirm, recommended next step, talking point). Review buttons carry one-line helper text. Reviewer decisions, discussion, customer training and usage change stay separate.
+- Source labels use article titles. IDs and technical detail sit in expanders.
+- The evaluation page is renamed Workflow quality checks, with Workflow checks, Response review and Demo activity views, and states that rule checks do not prove live AI quality.
