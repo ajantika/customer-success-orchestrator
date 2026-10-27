@@ -2,14 +2,12 @@
 import streamlit as st
 
 GUIDE = """
-**No login or setup is needed.** The demo uses sample data and prepared responses.
+**No login or setup is needed.** The demo uses sample data and prepared responses. No live AI model is called.
 
-1. **Choose a walkthrough** on the Overview page. It opens the example customer and explains the situation.
-2. **Follow the highlighted step.** The progress bar shows where you are, and each step has one main button.
-3. **Read the result** shown after each click. Open “Details” for what the assistant found and why.
-4. **Stuck or made a wrong choice?** Choose **Restart this walkthrough** (resets only that example customer) or **Back to overview**. “Reset all demo data” in the sidebar resets everything. Refreshing the browser tab also starts a new demo.
-
-**Example customer replies:** “The directory connection is failing.” · “We see an authentication error.” · “It times out when we connect.” · “We already tried those steps.” · “Please stop sending messages.”
+1. **Select a customer** on the Overview page. Every page then shows that same customer.
+2. **Choose what to explore:** setup support, or a customer brief with learning recommendations.
+3. **Read what happened** after each click. Open “Details” or “Why this decision?” for the reasoning.
+4. **Made a wrong choice?** Use **Reset this customer's demo activity** on a customer page, or **Reset all demo data** in the sidebar. Refreshing the browser tab also starts a new demo.
 """
 
 

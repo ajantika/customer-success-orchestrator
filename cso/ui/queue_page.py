@@ -31,7 +31,7 @@ def _resolve(db, tid):
     note = st.session_state.get(f"note_{tid}", "")
     t = db.one("SELECT t.journey_id, t.account_id, a.name FROM human_tasks t JOIN accounts a ON a.id=t.account_id WHERE t.id=?", (tid,))
     if len((note or "").strip()) < 10:
-        st.session_state[f"err_{tid}"] = "Please describe what was fixed and how you checked it (at least 10 characters). Your text is kept."
+        st.session_state[f"err_{tid}"] = "Please describe what you fixed and what you checked (at least 10 characters). Your text is kept."
         return
     st.session_state.pop(f"err_{tid}", None)
     try:
@@ -71,13 +71,14 @@ def render():
     db = session.get_db()
     session.show_flash()
     st.title("Support tasks")
+    st.caption("Review issues that need a person's help and record how they were resolved.")
     aid, prod = st.session_state.get("acct"), st.session_state.get("prod")
     scope = st.session_state.get("queue_scope", "customer")
     q = "SELECT t.*, a.name FROM human_tasks t JOIN accounts a ON a.id=t.account_id"
     if scope == "all":
         rows = db.q(q + " ORDER BY t.status='resolved', t.created_at")
         rows.sort(key=lambda r: (r["status"] == "resolved", PRIO[r["priority"]], r["created_at"]))
-        st.markdown("**Showing every customer's support tasks.**")
+        st.markdown("**All customers.** Every task names its customer.")
         if aid:
             name = db.one("SELECT name FROM accounts WHERE id=?", (aid,))["name"]
             st.button(f"Show only {name}'s support tasks", on_click=_scope, args=("customer",), key="to_customer")
@@ -92,7 +93,7 @@ def render():
         if not rows:
             st.info(f"No support tasks for {name}.")
             c = st.columns(2)
-            c[0].button(f"Back to {name}'s setup", on_click=_setup, args=(aid, prod), key="back_none", width="stretch")
+            c[0].button("Return to this customer's setup", on_click=_setup, args=(aid, prod), key="back_none", width="stretch")
             c[1].button("View all support tasks", on_click=_scope, args=("all",), key="all_b", width="stretch")
             return
         st.button("View all support tasks", on_click=_scope, args=("all",), key="all_c", help="Shows every customer's tasks instead of only this customer's.")
@@ -104,6 +105,9 @@ def render():
     if sel not in ids:
         sel = next((r["id"] for r in rows if r["status"] != "resolved"), ids[0])
         st.session_state["task"] = sel
+    if scope == "all":
+        st.dataframe(pd.DataFrame([{"Task": r["id"], "Customer": r["name"], "Product": PRODUCT_LABEL[r["product"]], "Issue": r["issue"].split(": ", 1)[-1], "Status": status(r["status"])} for r in rows]),
+                     hide_index=True, width="stretch")
     if len(rows) > 1:
         st.session_state["w_task"] = sel
         st.selectbox("Support task", ids, format_func=lambda x: _task_label(next(r for r in rows if r["id"] == x)), key="w_task", on_change=_on_task)
@@ -117,12 +121,11 @@ def render():
         pr = rules.progress(db, t["account_id"], t["product"])
         nxt = f"Next step: {pr['next_milestone']['customer_label']}." if pr["next_milestone"] else "Setup is complete."
         st.markdown(f"**Task status: Resolved.** {nxt}")
-        st.button(f"Continue {t['name']}'s setup", on_click=_setup, args=(t["account_id"], t["product"]), key="cont_setup", type="primary")
+        st.button("Return to this customer's setup", on_click=_setup, args=(t["account_id"], t["product"]), key="cont_setup", type="primary")
     else:
         st.markdown("### Support needs to investigate this issue.")
         st.markdown(f"**Task status: {status(t['status'])}**")
-        if st.session_state.get("guided") == "onboarding":
-            st.caption("Record how the issue was resolved below. The assistant will then check Maple's setup again.")
+        st.caption(f"Record how the issue was resolved below. The assistant will then check {t['name']}'s setup again.")
     titles = {c.doc_id: c.title for c in get_retriever().chunks}
     att = ctx.get("attempted_doc_ids", [])
     c1, c2, c3 = st.columns(3, gap="large")
@@ -144,14 +147,15 @@ def render():
         st.caption(f"Priority {t['priority']} · {status(t['status'])}")
     if t["status"] != "resolved":
         with st.form(key=f"resolve_{sel}"):
-            st.text_area("What was fixed?", key=f"note_{sel}", height=90, placeholder="Reconnected the employee directory and confirmed the connection works.")
+            st.text_area("Resolution note", key=f"note_{sel}", height=90, placeholder="Reconnected the employee directory and confirmed the connection works.")
+            st.caption("Describe what you fixed, what you checked, and what the customer should do next.")
             if st.session_state.get(f"err_{sel}"):
                 st.error(st.session_state[f"err_{sel}"])
             st.checkbox("Simulate that this fix completed the blocked setup step.", key=f"fix_{sel}", value=True,
                         help="This updates sample progress; it does not fix real software.")
-            st.caption("Describe the fix and how you checked it worked. This helps the assistant continue supporting the customer.")
-            st.form_submit_button("Save note and mark resolved", type="primary", on_click=_resolve, args=(db, sel))
-        st.button(f"Back to {t['name']}'s setup", on_click=_setup, args=(t["account_id"], t["product"]), key="back_setup", help="Does not resolve the task or change any progress.")
+            st.form_submit_button("Save note and resolve", type="primary", on_click=_resolve, args=(db, sel))
+            st.caption("Close this support task and record the resolution. This does not automatically mean the customer has finished setup.")
+        st.button("Return to this customer's setup", on_click=_setup, args=(t["account_id"], t["product"]), key="back_setup", help="Does not resolve the task or change any progress.")
         st.caption("Resolving the support issue is separate from completing onboarding. The assistant checks setup again afterwards.")
     with st.expander("More detail"):
         st.markdown("**Setup status (now)**")

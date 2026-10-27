@@ -11,11 +11,9 @@ from .db import DB, to_iso
 ACCOUNT_TABLES = ["accounts", "contacts", "subscriptions", "rollout_plans", "product_events", "support_cases", "interactions", "journeys",
                   "scheduled_actions", "human_tasks", "agent_runs", "tool_executions", "guard_log", "meetings", "learner_records",
                   "recommendations", "rec_feedback", "learning_outcomes"]
-WORKFLOWS = {"onboarding": ("ACC-001", "Maple Design"), "team": ("ACC-041", "Northstar Retail")}
-
-
-def restart_workflow(db: DB, which: str) -> str:
-    aid, name = WORKFLOWS[which]
+def restart_account(db: DB, aid: str) -> str:
+    """Reset one customer's demo activity (messages, tasks, recommendations, progress) to the starting sample data."""
+    name = db.one("SELECT name FROM accounts WHERE id=?", (aid,))["name"]
     fresh = build_db()
     jids = [r["id"] for r in db.q("SELECT id FROM journeys WHERE account_id=?", (aid,))]
     mids = [r["id"] for r in db.q("SELECT id FROM meetings WHERE account_id=?", (aid,))]
@@ -40,4 +38,4 @@ def restart_workflow(db: DB, which: str) -> str:
             db.x(f"INSERT INTO meeting_events({','.join(r)}) VALUES({','.join('?' * len(r))})", tuple(r.values()))
     start = db.one("SELECT value FROM settings WHERE key='session_start'")["value"]
     db.x("INSERT OR REPLACE INTO settings(key,value) VALUES('clock',?)", (start,))
-    return f"{name}'s messages, tasks, recommendations and journey were reset. The demo clock returned to {start[:10]}."
+    return f"{name}'s demo activity was reset: messages, support tasks, recommendations and setup progress are back to the starting sample data. Other customers were not changed. The demo clock returned to {start[:10]}."

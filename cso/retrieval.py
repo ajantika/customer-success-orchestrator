@@ -103,6 +103,13 @@ class Retriever:
         ]
 
 
+def humanize(text: str) -> str:
+    """Show cross-references by document title, not by ID: [[DOC-104]] becomes “Connecting your employee directory to Docs”."""
+    r = get_retriever()
+    titles = {c.doc_id: c.title for c in r.chunks}
+    return re.sub(r"\[\[(DOC-\d{3})\]\]", lambda m: f"“{titles.get(m.group(1), m.group(1))}”", text)
+
+
 @lru_cache(maxsize=1)
 def get_retriever() -> Retriever:
     return Retriever()

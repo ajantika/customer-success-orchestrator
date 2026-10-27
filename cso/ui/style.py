@@ -9,7 +9,7 @@ import streamlit as st
 from .. import session
 from ..format import when
 from ..models import PRODUCT_LABEL, STATE_LABEL
-from ..retrieval import get_retriever
+from ..retrieval import get_retriever, humanize
 
 STATE_COLOR = {  # (text, background) tuned for the dark theme
     "monitoring": ("#9bbcff", "#1e2f6b"), "guidance_sent": ("#7ce8d6", "#12433f"), "waiting_for_customer": ("#7ce8d6", "#12433f"),
@@ -74,20 +74,19 @@ def _fmt(s: str) -> str:
 
 
 def show_sources(srcs: list[dict], key: str):
-    """Document titles with the relevant sections; each document opens to its excerpt."""
+    """Each source is labelled by title and section; the sample article opens in an expander and the technical ID sits inside it."""
     if not srcs:
         return
     ret = get_retriever()
     for s in srcs:
         secs = s.get("sections") or []
-        label = f"{s['title']} ({s['doc_id']})" + (f" · {', '.join(secs)}" if secs else "")
-        with st.expander(f"Source: {label}"):
+        label = f"Source used: {s['title']}" + (f" — {', '.join(secs)}" if secs else "")
+        with st.expander(label):
             chunks = ret.get(s["doc_id"])
             shown = [c for c in chunks if c.section in secs] or chunks
             for c in shown:
-                st.markdown(f"**{c.section}**\n\n{c.text}")
-            if s.get("xref"):
-                st.caption("Also referenced by the message above.")
+                st.markdown(f"**{c.section}**\n\n{humanize(c.text)}")
+            st.caption(f"This is a sample help article used for the demo. Technical reference: {s['doc_id']}.")
 
 
 def bubble(row: dict):
@@ -109,25 +108,28 @@ def bubble(row: dict):
 
 # ------------------------------------------------------------ selection ---
 def _on_acct():
-    session.select(st.session_state.get("w_acct"))  # choosing another customer also leaves a guided walkthrough, keeping its progress
+    new = st.session_state.get("w_acct")
+    session.select(new, session.default_product(session.get_db(), new))   # clears the previous customer's product, task, meeting, conversation and result
 
 
 def _on_prod():
     st.session_state["prod"] = st.session_state.get("w_prod")
+    for k in ("task", "sel_run", "reply_text", "last_action"):
+        st.session_state.pop(k, None)   # a different product means a different conversation and task
 
 
-def account_picker(db, with_product: bool = True) -> tuple[str | None, str | None]:
-    """Customer (and product) selectors driven by the canonical session values and stable IDs."""
-    accts = db.q("SELECT id, name FROM accounts ORDER BY CASE WHEN id IN ('ACC-001','ACC-041') THEN 0 ELSE 1 END, name")
+def account_picker(db, with_product: bool = True, key: str = "w_acct") -> tuple[str | None, str | None]:
+    """The shared customer (and product) selector. It always shows the customer the app is actually using."""
+    accts = db.q("SELECT id, name FROM accounts ORDER BY name")
     ids = [a["id"] for a in accts]
     names = {a["id"]: a["name"] for a in accts}
     cur = st.session_state.get("acct")
     if cur not in ids:
         cur = None
         st.session_state["acct"] = None
-    st.session_state["w_acct"] = cur  # keep the widget in step with what is actually displayed
+    st.session_state[key] = cur  # keep the widget in step with what is actually displayed
     c1, c2 = st.columns([2, 3])
-    c1.selectbox("Customer", ids, index=None, format_func=lambda i: names[i], placeholder="Select a customer…", key="w_acct", on_change=_on_acct)
+    c1.selectbox("Select a customer", ids, index=None, format_func=lambda i: names[i], placeholder="Select a customer…", key=key, on_change=_on_acct)
     if cur is None:
         return None, None
     jid = None
@@ -138,7 +140,7 @@ def account_picker(db, with_product: bool = True) -> tuple[str | None, str | Non
             return cur, None
         prod = st.session_state.get("prod")
         if prod not in prods:
-            prod = prods[0]
+            prod = session.default_product(db, cur)
             st.session_state["prod"] = prod
         st.session_state["w_prod"] = prod
         c2.radio("Product", prods, format_func=lambda p: PRODUCT_LABEL[p], horizontal=True, key="w_prod", on_change=_on_prod)
@@ -151,9 +153,9 @@ def footer_label():
 
 
 
-def context_line(db, aid: str, prod: str | None = None, label: str | None = None):
-    """Show which customer (and product) this screen is about."""
-    name = db.one("SELECT name FROM accounts WHERE id=?", (aid,))["name"]
+def context_line(db, aid: str, prod: str | None = None, viewing_as: str = "Customer Success"):
+    """Always say which customer (and product) a screen is about, and from whose point of view."""
     from ..models import PRODUCT_LABEL
+    name = db.one("SELECT name FROM accounts WHERE id=?", (aid,))["name"]
     tail = f" · Product: {PRODUCT_LABEL[prod]}" if prod else ""
-    st.markdown(f"**Customer: {name}**{tail}" + (f" &nbsp; <span class='cso-pill'>{html.escape(label)}</span>" if label else ""), unsafe_allow_html=True)
+    st.markdown(f"**Customer: {name}**{tail}  \n<span class='cso-strip'>Viewing as: {html.escape(viewing_as)}</span>", unsafe_allow_html=True)

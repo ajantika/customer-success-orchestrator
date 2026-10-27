@@ -8,10 +8,10 @@ from __future__ import annotations
 
 import streamlit as st
 
-from .datagen import NORTHSTAR, build_db
+from .datagen import build_db
 from .db import DB
 from .llm import DEFAULT_MODEL, get_api_key
-from .restart import restart_workflow
+from .restart import restart_account
 
 FEATURED = "ACC-001"
 
@@ -25,19 +25,28 @@ def get_db() -> DB:
     return st.session_state["db"]
 
 
-WORKFLOW_ACCT = {"onboarding": FEATURED, "team": NORTHSTAR}
+# Everything below belongs to one customer. Choosing a different customer clears it so nothing from the previous customer can show up.
+PER_CUSTOMER_KEYS = ("prod", "task", "meeting", "sel_run", "_latest_run", "reply_text", "example_pick", "last_action", "team_scan", "_last_reply", "flash")
 
 
 def select(acct: str | None, prod: str | None = None, **extra):
-    """Set the selected customer. Choosing a different customer leaves any guided walkthrough (its progress is kept)."""
-    g = st.session_state.get("guided")
-    if g and WORKFLOW_ACCT.get(g) != acct:
-        st.session_state.pop("guided", None)
+    """Set the one shared customer selection. A different customer clears the previous customer's product, task, meeting, conversation and result."""
+    if acct != st.session_state.get("acct"):
+        for k in PER_CUSTOMER_KEYS:
+            st.session_state.pop(k, None)
     st.session_state["acct"] = acct
     if prod:
         st.session_state["prod"] = prod
     for k, v in extra.items():
         st.session_state[k] = v
+
+
+def default_product(db, acct: str | None) -> str | None:
+    """Docs if the customer has it, otherwise their first product (None if they have not bought anything)."""
+    if not acct:
+        return None
+    prods = [r["product"] for r in db.q("SELECT product FROM journeys WHERE account_id=? ORDER BY product", (acct,))]
+    return "docs" if "docs" in prods else (prods[0] if prods else None)
 
 
 def goto(page_key: str):
@@ -46,30 +55,21 @@ def goto(page_key: str):
 
 
 def reset_demo():
-    for k in ("flash", "guided", "last_scan", "reply_text", "sel_run", "task", "meeting", "_latest_run", "tab_agent", "tab_eval", "viewed", "last_action", "team_scan", "done_onboarding", "done_team"):
+    for k in ("flash", "last_scan", "queue_scope", "tab_eval", "viewed", "team_scan", "last_action", *PER_CUSTOMER_KEYS):
         st.session_state.pop(k, None)
     st.session_state["db"] = build_db()
-    select(None, "docs")
+    st.session_state["acct"] = None
     st.session_state["nonce"] = st.session_state.get("nonce", 0) + 1
-    flash("success", "Demo data reset to the seeded state.")
+    flash("success", "Demo data reset to the starting state. No customer is selected.")
 
 
-def _start(which: str, acct: str, **extra):
-    """Open a walkthrough. Only that walkthrough's customer is restarted; the other workflow keeps its progress."""
-    restart_workflow(get_db(), which)
-    select(acct, "docs", **extra)
-    st.session_state["guided"] = which
-    for k in ("flash", "last_action", "sel_run", "_latest_run", "reply_text", "team_scan", "tab_agent"):
-        st.session_state.pop(k, None)
-    goto("agent" if which == "onboarding" else "team")
-
-
-def start_onboarding_demo():
-    _start("onboarding", FEATURED)
-
-
-def start_team_demo():
-    _start("team", NORTHSTAR, meeting="MTG-001")
+def reset_customer(acct: str):
+    """Undo this customer's demo activity only. Other customers keep their progress."""
+    msg = restart_account(get_db(), acct)
+    for k in PER_CUSTOMER_KEYS:
+        if k != "prod":
+            st.session_state.pop(k, None)
+    record_action(msg, tone="info", scope=("agent", "team", "customer", "queue", "overview"), account_id=acct)
 
 
 def flash(kind: str, msg: str):
@@ -153,7 +153,7 @@ def show_action(scope: str | None = None, any_customer: bool = False, task_butto
                 if a["why"]:
                     st.markdown(f"**Why.** {a['why']}")
         if a["tone"] == "error":
-            st.caption("Nothing was changed by the failed step. Try the action again, or choose “Restart this walkthrough” to start clean.")
+            st.caption("Nothing was changed by the failed step. Try the action again, or use “Reset this customer's demo activity” to start clean.")
 
 
 def report_run(res: dict):

@@ -1,6 +1,6 @@
 ---
 id: DOC-101
-title: Tasks - Getting started
+title: Getting started with Tasks
 product: tasks
 ---
 ## Create your Tasks workspace

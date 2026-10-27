@@ -10,13 +10,13 @@ from ..models import PRODUCT_LABEL, STATE_LABEL
 from .. import flags
 from . import style
 
-TABS = ["Observed in this session", "Sample history", "System evaluation"]
+TABS = ["Workflow checks", "Response review", "Demo activity"]
 
 
 def _run_checks(db):
     res = E.run_workflow_checks()
     E.record_results(db, res)
-    st.session_state["tab_eval"] = TABS[2]
+    st.session_state["tab_eval"] = TABS[0]
     st.session_state["eval_msg"] = ("success" if all(r["passed"] for r in res) else "warning", f"Ran {len(res)} workflow checks: {sum(r['passed'] for r in res)} passed.")
 
 
@@ -27,7 +27,7 @@ def _rate(db):
     subject = ss.get("rate_msg") if kind == "message" else ss.get("rate_rec")
     try:
         E.save_rating(db, subject, {k: ss[f"rate_{kind}_{k}"] for k in crit}, ss.get("rate_note", ""), kind)
-        ss["tab_eval"] = TABS[2]
+        ss["tab_eval"] = TABS[1]
         ss["eval_msg"] = ("success", f"Rating saved for {subject}.")
     except ValueError as e:
         ss["eval_msg"] = ("warning", str(e))
@@ -68,12 +68,12 @@ def _tab_session(db):
         ("Recommendations reviewed", tm["reviewed"], "Distinct recommendations a person acted on.", f"{tm['recs']} recommendations"),
         ("Accepted / edited", f"{tm['accepted']} / {tm['edited']}", "Distinct recommendations accepted or edited (an edited one may also be accepted).", f"{tm['reviewed']} reviewed"),
         ("Dismissed / deferred", f"{tm['dismissed']} / {tm['deferred']}", "Distinct recommendations dismissed or deferred, each with a reason.", f"{tm['reviewed']} reviewed"),
-        ("Marked discussed", tm["discussed"], "Recommendations the account team says were raised with the customer.", f"{tm['accepted'] + tm['edited']} accepted or edited"),
+        ("Marked discussed", tm["discussed"], "Recommendations a reviewer says were raised with the customer.", f"{tm['accepted'] + tm['edited']} accepted or edited"),
         ("Learners enrolled / started / completed", f"{tm['enrolled']} / {tm['started']} / {tm['completed']}", "Sample customer learning updates, tracked separately from the reviewer's decision.", "Learners"),
     ]
     st.dataframe(pd.DataFrame(ar, columns=["Measure", "Value", "Definition", "Denominator"]), hide_index=True, width="stretch")
     if not m["runs"] and not tm["briefs_generated"]:
-        st.caption("No activity yet. Start a guided demo from the Overview page.")
+        st.caption("No activity yet. Choose a customer on the Overview page to begin.")
 
 
 def _tab_seed(db):
@@ -112,10 +112,10 @@ def _tab_seed(db):
             "Without randomisation or a comparable group, differences could reflect account size, intent or seasonality, so they would not be claimed as impact.")
 
 
-def _tab_system(db):
-    st.markdown("#### Workflow checks (deterministic)")
-    st.caption("These test application behaviour (rules, tools, state, idempotency, review workflow) on a fresh seeded database per check. They are **not** a language-quality evaluation. "
-               "Navigation and selection checks run in the pytest UI suite (see EVALUATION.md).")
+def _tab_checks(db):
+    st.markdown("#### Workflow checks")
+    st.caption("Each check tests a rule or state change in code (for example frequency limits, opt-outs, duplicate tasks, completion evidence, review steps) on a fresh sample database. "
+               "Passing them shows the rules behave as written. It does not show that a live AI model would be accurate, grounded in documentation, or reliable in production.")
     st.button("Run workflow checks", type="primary", on_click=_run_checks, args=(db,))
     msg = st.session_state.pop("eval_msg", None)
     if msg:
@@ -126,8 +126,11 @@ def _tab_system(db):
         st.dataframe(pd.DataFrame([{"Check": r["name"], "Result": "Pass" if r["passed"] else "Fail", "Evidence": r["detail"][:260]} for r in res]), hide_index=True, width="stretch")
     else:
         st.markdown("**Not evaluated** in this session yet. The same checks run with `pytest`.")
-    st.markdown("#### Response quality (human scoring)")
-    st.caption("Scores are only what a person records here. There are no automated or invented scores.")
+
+def _tab_review(db):
+    st.markdown("#### Response review")
+    st.caption("A person rates the prepared responses and recommendations produced in this session. Scores are only what you record here; there are no automated or invented scores. "
+               "The responses are prepared, so ratings describe the demo content, not a live AI model.")
     st.radio("What are you rating?", ["Agent message", "Meeting suggestion"], horizontal=True, key="rate_kind")
     kind = "message" if st.session_state.get("rate_kind", "Agent message") == "Agent message" else "recommendation"
     if kind == "message":
@@ -167,9 +170,17 @@ def _tab_system(db):
 def render():
     db = session.get_db()
     session.show_flash()
-    st.title("Evaluation and outcomes")
-    st.caption("Three separate views. Nothing here is a measured business result: all customers and history are sample data.")
+    st.title("Workflow quality checks")
+    st.caption("Three separate views: Workflow checks (rules and state changes), Response review (human ratings of prepared responses) and Demo activity (what happened in this session). "
+               "Nothing here is a measured business result or proof of live AI quality: all customers and history are sample data.")
     if st.session_state.get("tab_eval") not in TABS:
         st.session_state["tab_eval"] = TABS[0]
     view = st.radio("View", TABS, horizontal=True, key="tab_eval", label_visibility="collapsed")
-    {TABS[0]: _tab_session, TABS[1]: _tab_seed, TABS[2]: _tab_system}[view](db)
+    if view == TABS[0]:
+        _tab_checks(db)
+    elif view == TABS[1]:
+        _tab_review(db)
+    else:
+        _tab_session(db)
+        with st.expander("Sample history (generated, not real)"):
+            _tab_seed(db)

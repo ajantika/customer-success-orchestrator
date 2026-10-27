@@ -98,7 +98,7 @@ def _contact(db, rng, aid, name, *, opted=0, email=True, channel="email"):
 
 
 def _msg(db, aid, cid, jid, channel, actor, body, ts, *, kind="message", signals=None, docs=None):
-    titles = {"DOC-101": "Tasks - Getting started", "DOC-102": "Docs - Getting started", "DOC-103": "Support - Getting started",
+    titles = {"DOC-101": "Getting started with Tasks", "DOC-102": "Getting started with Docs", "DOC-103": "Getting started with Support",
               "DOC-104": "Connecting your employee directory to Docs", "DOC-105": "Directory integration troubleshooting"}
     db.insert("interactions", id=db.next_id("INT", 4), account_id=aid, contact_id=cid, journey_id=jid, channel=channel, actor=actor, kind=kind,
               body=body, sources=json.dumps([{"doc_id": d, "title": titles.get(d, d)} for d in (docs or [])]), signals=json.dumps(signals or {}), ts=to_iso(ts))

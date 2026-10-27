@@ -317,3 +317,54 @@ def ingest_customer_message(db: DB, account_id: str, journey_id: str, channel: s
         db.x("INSERT OR IGNORE INTO idempotency(key,tool,result,created_at) VALUES(?,?,?,?)",
              (f"customer:{submission_id}", "ingest", json.dumps(out), to_iso(db.now())))
     return out
+
+
+# ------------------------------------------------ plain-language decision ---
+RULE_LABEL = {
+    "missing_data": "Essential customer information is on file", "opt_out": "Customer has not opted out", "journey_open": "Setup journey is still open",
+    "stale_data": "Product data is up to date", "setup_incomplete": "Setup is not yet complete", "rollout_started": "Rollout has started",
+    "no_blocking_case": "No support issue is blocking", "stalled": "Setup progress has stalled long enough", "frequency": "Message limits allow another message",
+    "unanswered_cap": "Earlier messages were answered", "inbound_waiting": "A customer message is waiting",
+}
+
+
+def plain_decision(db: DB, journey_id: str) -> dict:
+    """What the system will do about proactive setup outreach for this journey, in plain words. Detailed rules go in 'details'."""
+    j = db.one("SELECT * FROM journeys WHERE id=?", (journey_id,))
+    st = db.get_settings()
+    now = db.now()
+    el = evaluate_outreach(db, journey_id)
+    blocked = {c.code: c for c in el.checks if not c.passed}
+    pr = progress(db, j["account_id"], j["product"])
+    plan = db.one("SELECT planned_start FROM rollout_plans WHERE account_id=? AND product=?", (j["account_id"], j["product"]))
+    when_ = lambda iso: from_iso(iso).strftime("%B ") + str(from_iso(iso).day)
+    details = [{"rule": RULE_LABEL.get(c.code, c.code.replace("_", " ")), "met": c.passed, "note": c.message} for c in el.checks]
+    if j["state"] == "opted_out" or "opt_out" in blocked:
+        h, n, tone = "The customer asked not to be contacted, so no messages will be sent.", "Respect the opt-out. Reach out only if the customer contacts you.", "wait"
+    elif j["state"] == "completed" or pr["complete"]:
+        h, n, tone = "Setup is complete, so setup reminders have stopped.", "Setup is complete. Check whether the team is regularly using the intended workflow.", "ok"
+    elif "missing_data" in blocked:
+        h, n, tone = "Essential information is missing, so the assistant will not guess.", "Add the missing information before deciding whether to reach out.", "attention"
+    elif "stale_data" in blocked:
+        h, n, tone = "Usage data is out of date. Refresh it before deciding whether outreach is needed.", "Refresh the product data, then check this customer again.", "attention"
+    elif "no_blocking_case" in blocked:
+        h, n, tone = "Support is working on a blocker, so automated reminders are paused.", "Follow the support task. Setup reminders resume after it is resolved.", "wait"
+    elif "rollout_started" in blocked:
+        pu = j["paused_until"]
+        if plan and from_iso(plan["planned_start"]) > now:
+            h, n, tone = f"Rollout starts on {when_(plan['planned_start'])}, so proactive setup reminders should wait.", "No action needed until the rollout starts. The customer can still ask for help.", "wait"
+        elif pu:
+            h, n, tone = f"The customer asked to wait until {when_(pu)}, so proactive reminders should wait.", "No action needed until then. The customer can still ask for help.", "wait"
+        else:
+            h, n, tone = "There is no rollout date on file, so the assistant will not start outreach.", "Confirm the customer's rollout plan.", "attention"
+    elif "frequency" in blocked:
+        h, n, tone = "A message was sent recently, so the assistant will wait before contacting the customer again.", "Wait for a reply or for the message limit to reset.", "wait"
+    elif "unanswered_cap" in blocked:
+        h, n, tone = "Earlier messages have not been answered, so the assistant has stopped sending reminders.", "Consider a different channel or a call.", "attention"
+    elif "stalled" in blocked:
+        nm = pr["next_milestone"]["customer_label"] if pr["next_milestone"] else "the next step"
+        h, n, tone = f"Setup is progressing. The assistant will offer help if there is no progress for {st.stall_threshold_days} days.", f"Next setup step: {nm}.", "ok"
+    else:
+        nm = pr["next_milestone"]["customer_label"] if pr["next_milestone"] else "the next step"
+        h, n, tone = "Setup has stalled, so the assistant can offer help.", f"Check this customer's setup to send guidance for: {nm}.", "attention"
+    return {"headline": h, "next_step": n, "tone": tone, "details": details, "allowed": el.allowed}

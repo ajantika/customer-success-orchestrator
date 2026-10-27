@@ -505,6 +505,8 @@ class SaveRecIn(MutIn):
     learner_summary: str = Field("", max_length=400)
     unknowns: list[str] = []
     evidence_refs: list[str] = []
+    noticed: list[str] = Field([], description="Facts noticed, with time periods, shown under 'What we noticed'.")
+    alternatives: list[dict] = Field([], description="Other courses considered: {course_id, reason}.")
     free_alternatives_considered: str | None = Field(None, max_length=400)
 
 
@@ -658,6 +660,7 @@ def save_recommendation(ctx: ToolContext, a: SaveRecIn) -> SaveRecOut:
             if c["paid"] and not a.free_alternatives_considered:
                 raise ToolError("paid_needs_justification", f"{cid} is paid. State which free alternatives were considered and why they are not enough.")
             courses.append({"course_id": cid, "title": c["title"], "paid": bool(c["paid"]), "price_note": c["price_note"], "format": c["format"], "duration_min": c["duration_min"],
+                            "skills": json.loads(c["skills"]), "persona": c["persona"], "difficulty": c["difficulty"],
                             "prerequisites": json.loads(c["prerequisites"]), "learners_ready": len(ready), "learners_blocked": len(blocked), "availability": c["availability"],
                             "source_doc": c["source_doc"], "source_section": c["source_section"], "free_alternatives_considered": a.free_alternatives_considered})
     dedupe = f"{a.account_id}|{a.meeting_id}|{a.action_type}|{','.join(sorted(a.course_ids))}"
@@ -685,7 +688,10 @@ def save_recommendation(ctx: ToolContext, a: SaveRecIn) -> SaveRecOut:
     now = to_iso(db.now())
     db.insert("recommendations", id=rid, account_id=a.account_id, meeting_id=a.meeting_id, status="generated", action_type=a.action_type, title=a.title,
               why_now=a.why_now, goal=acc["goal"] or "", talking_point=a.talking_point, brief=a.brief, evidence=json.dumps(evidence),
-              learner_group=json.dumps({"summary": a.learner_summary}), courses=json.dumps(courses), unknowns=json.dumps(a.unknowns),
+              learner_group=json.dumps({"summary": a.learner_summary, "noticed": a.noticed,
+                                                       "alternatives": [{"title": (db.one("SELECT title FROM courses WHERE id=?", (x.get("course_id"),)) or {}).get("title", x.get("course_id")),
+                                                                         "paid": bool((db.one("SELECT paid FROM courses WHERE id=?", (x.get("course_id"),)) or {}).get("paid")),
+                                                                         "reason": str(x.get("reason", ""))[:300]} for x in a.alternatives]}), courses=json.dumps(courses), unknowns=json.dumps(a.unknowns),
               completeness=json.dumps(completeness), generation_mode=ctx.mode, agent_version="meeting-prep-v1", dedupe_key=dedupe, needs_refresh=0,
               content_original=json.dumps(content), content_current=json.dumps(content), created_at=now, updated_at=now)
     db.timeline(a.account_id, "system", "tool_action", f"Recommendation {rid} generated for meeting {a.meeting_id}: {a.title}")
@@ -779,7 +785,7 @@ TOOLS: dict[str, ToolSpec] = {t.name: t for t in [
     ToolSpec("create_handoff", "Create a task for a human team (never duplicates an open one). Include what was tried.", HandoffIn, HandoffOut, create_handoff, True),
     ToolSpec("get_meeting_context", "Get an upcoming meeting: purpose, date, owner, attendees, whether it was changed or cancelled, and the account lifecycle stage.", MeetingIn, MeetingOut, get_meeting_context),
     ToolSpec("get_learning_progress", "Get learner records for the account: who completed which course, how fresh the records are, and whether data is missing.", LearnIn, LearnOut, get_learning_progress),
-    ToolSpec("search_training_catalog", "Search the fictional training catalog. Returns courses with prerequisites, format, duration and whether they are free or paid.", CatalogIn, CatalogOut, search_training_catalog),
+    ToolSpec("search_training_catalog", "Search the sample training catalog. Returns courses with prerequisites, format, duration and whether they are free or paid.", CatalogIn, CatalogOut, search_training_catalog),
     ToolSpec("get_account_blockers", "Get open technical cases/tasks, rollout status, and earlier recommendations (including dismissed and deferred ones) for the account.", BlockersIn, BlockersOut, get_account_blockers),
     ToolSpec("save_recommendation", "Save a recommendation for human review. Cite only evidence IDs returned by tools. Training recommendations need learner-record and catalog evidence, valid prerequisites, and a justification for paid options. Nothing is sent to the customer.", SaveRecIn, SaveRecOut, save_recommendation, True),
     ToolSpec("record_recommendation_feedback", "Human reviewers only: record review, acceptance, edit, dismissal, deferral or discussion.", FeedbackIn, FeedbackOut, record_recommendation_feedback, True),
