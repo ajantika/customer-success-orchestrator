@@ -108,7 +108,7 @@ def test_birchwood_setup_support_stays_on_birchwood_then_northstar_brief_is_nort
 def test_changing_customer_clears_previous_conversation_task_and_recommendation():
     at = _maple_setup()
     db = at.session_state["db"]
-    _btn(at, "Check this customer's setup").click().run()
+    _btn(at, "Check whether a setup reminder is needed").click().run()
     assert "Maple" in _text(at)
     _pick(at, "ACC-041")
     for k in ("task", "last_action", "reply_text"):
@@ -128,7 +128,7 @@ def test_maple_flow_replies_show_both_sides_handoff_task_resolution_and_return(m
     at = _maple_setup()
     db = at.session_state["db"]
     assert "Customer: Maple Design" in _text(at) and not at.exception
-    _btn(at, "Check this customer's setup").click().run()
+    _btn(at, "Check whether a setup reminder is needed").click().run()
     assert db.one("SELECT COUNT(*) n FROM interactions WHERE actor='agent' AND kind='message' AND origin='session'")["n"] == 1
     at.run(); at.run()
     assert db.one("SELECT COUNT(*) n FROM interactions WHERE actor='agent' AND kind='message' AND origin='session'")["n"] == 1
@@ -217,7 +217,7 @@ def test_northstar_brief_has_five_sections_and_edit_accept_sends_nothing():
 
 def test_support_result_does_not_appear_on_meeting_preparation():
     at = _maple_setup()
-    _btn(at, "Check this customer's setup").click().run()
+    _btn(at, "Check whether a setup reminder is needed").click().run()
     _goto(at, "team")
     assert "setup guidance" not in _text(at).lower()
 
@@ -226,7 +226,7 @@ def test_queue_follows_the_selected_customer_and_all_view_names_customers(monkey
     monkeypatch.setattr("cso.ui.agent_page.DEBOUNCE_S", 0)
     at = _maple_setup()
     db = at.session_state["db"]
-    _btn(at, "Check this customer's setup").click().run()
+    _btn(at, "Check whether a setup reminder is needed").click().run()
     for text in ("The directory connection is failing.", "We see an authentication error.", "We already tried those steps."):
         _btn(at, text).click().run()
     tid = db.one("SELECT id FROM human_tasks WHERE origin='session'")["id"]
@@ -251,7 +251,7 @@ def test_evaluation_page_names_three_views_and_does_not_overclaim():
 def test_typed_completion_claim_without_events_keeps_journey_open():
     at = _maple_setup()
     db = at.session_state["db"]
-    _btn(at, "Check this customer's setup").click().run()
+    _btn(at, "Check whether a setup reminder is needed").click().run()
     at.text_area(key="reply_text").set_value("Setup is now complete.").run()
     _btn(at, "Send message").click().run()
     assert db.one("SELECT state FROM journeys WHERE account_id=? AND product='docs'", (FEATURED,))["state"] != "completed"
@@ -273,7 +273,7 @@ def test_failed_handoff_is_reported_honestly_and_can_be_retried(monkeypatch):
     monkeypatch.setattr("cso.ui.agent_page.DEBOUNCE_S", 0)
     at = _maple_setup()
     db = at.session_state["db"]
-    _btn(at, "Check this customer's setup").click().run()
+    _btn(at, "Check whether a setup reminder is needed").click().run()
     _btn(at, "The directory connection is failing.").click().run()
     _btn(at, "We see an authentication error.").click().run()
     at.checkbox(key="fault").check().run()
@@ -291,3 +291,85 @@ def test_visitor_text_is_plain_and_discloses_the_demo():
     text = _text(at)
     assert "Interactive demo · Sample data · Prepared responses and rules. No live AI model is called." in text
     assert not any(w in text for w in ("Databricks", "Account Team", "Account Executive", "fictional", "synthetic", "walkthrough"))
+
+
+# ------------------------------------------------------- reminder check ---
+def _run_check(at, aid, prod):
+    _pick(at, aid)
+    _btn(at, "Open setup support").click().run()
+    if at.radio(key="w_prod").value != prod:
+        at.radio(key="w_prod").set_value(prod).run()
+    _btn(at, "Check whether a setup reminder is needed").click().run()
+    return _text(at) + " " + " ".join(s.value for s in at.success)
+
+
+def _decision(at):
+    return " ".join(e.value for e in list(at.info) + list(at.success) if "Decision:" in e.value)
+
+
+@pytest.mark.parametrize("aid,prod,label,why", [
+    ("ACC-035", "docs", "Reminder paused.", "This customer was contacted recently"),                 # recently contacted
+    ("ACC-015", "docs", "Reminder paused.", "rollout is scheduled for"),                              # future rollout
+    ("ACC-032", "tasks", "Reminder paused.", "Usage data was last updated on"),                       # outdated data
+    ("ACC-027", "docs", "No setup reminder needed.", "completed the required setup steps"),           # setup complete
+    ("ACC-020", "docs", "Reminder paused.", "A support issue is blocking setup"),                     # open blocker
+    ("ACC-011", "docs", "Demo reminder prepared.", "no progress for"),                                # eligible
+])
+def test_reminder_check_shows_a_persistent_specific_result(aid, prod, label, why):
+    at = _at("overview")
+    text = _run_check(at, aid, prod)
+    db = at.session_state["db"]
+    name = db.one("SELECT name FROM accounts WHERE id=?", (aid,))["name"]
+    assert label in _decision(at) and why in text
+    assert f"Checked: {name} · " in text and "Next step:" in text and "Why:" in text
+    assert any(e.label == "See decision details" for e in at.expander)
+    at.run(); at.run()                                                  # still on screen after reruns
+    assert why in _text(at)
+    sent = db.one("SELECT COUNT(*) n FROM interactions WHERE actor='agent' AND kind='message' AND origin='session' AND account_id=?", (aid,))["n"]
+    assert sent == (1 if label.startswith("Demo reminder") else 0)
+    if sent:
+        assert "This is a simulated message. No real customer was contacted." in _text(at)
+    if "blocking setup" in why:
+        tid = db.one("SELECT id FROM human_tasks WHERE account_id=? AND product=? AND status!='resolved'", (aid, prod))["id"]
+        assert _has(at, f"Open {name.split()[0]}'s support task · {tid}")
+    assert not at.exception
+
+
+def test_reminder_check_result_is_cleared_when_customer_or_product_changes_and_conversation_stays():
+    at = _at("overview")
+    _run_check(at, "ACC-011", "docs")
+    assert "Demo reminder prepared." in _decision(at)
+    at.radio(key="w_prod").set_value("tasks").run()                      # another product: the result does not carry over
+    assert "Result of your check" not in _text(at) and "Demo reminder prepared." not in _decision(at)
+    assert "Subject:" in " ".join(m.value for m in at.markdown) or "Latest exchange" in _text(at)   # the earlier conversation is still available
+    at.radio(key="w_prod").set_value("docs").run()
+    assert "Result of your check" not in _text(at)                       # changing product cleared it for good: no stale result returns
+    _pick(at, "ACC-015")
+    _goto(at, "agent")
+    assert "Result of your check" not in _text(at) and "Demo reminder prepared." not in _decision(at)   # another customer
+
+
+def test_repeated_reminder_checks_cannot_bypass_waiting_or_duplicate_messages():
+    at = _at("overview")
+    _run_check(at, "ACC-011", "docs")
+    db = at.session_state["db"]
+    n = lambda: db.one("SELECT COUNT(*) n FROM interactions WHERE actor='agent' AND kind='message' AND origin='session' AND account_id='ACC-011'")["n"]
+    assert n() == 1
+    for _ in range(3):
+        _btn(at, "Check whether a setup reminder is needed").click().run()
+    assert n() == 1                                                      # no duplicates
+    assert "Reminder paused." in _decision(at) and "contacted recently" in _text(at)
+    assert "Next eligible reminder time:" in _text(at)
+    assert not at.error and not at.exception
+
+
+def test_reminder_check_wording_separates_checking_from_replying():
+    at = _at("overview")
+    _pick(at, FEATURED)
+    _btn(at, "Open setup support").click().run()
+    text = _text(at)
+    assert "Check this customer's setup progress, recent messages, rollout timing, and support issues to decide whether a reminder is appropriate. This demo does not send real messages." in text
+    assert "should the system start or follow up on a conversation?" in text
+    assert "how should the assistant respond when the customer asks for help?" in text
+    assert "Checking does not complete setup, resolve a support issue, or guarantee a reminder." in text
+    assert not _has(at, "Check this customer's setup")

@@ -12,7 +12,7 @@ def _customer_without_tasks(db):
 
 
 def _maple_to_handoff(at):
-    _btn(at, "Check this customer's setup").click().run()
+    _btn(at, "Check whether a setup reminder is needed").click().run()
     for reply in ("The directory connection is failing.", "We see an authentication error.", "We already tried those steps."):
         _btn(at, reply).click().run()
 
@@ -63,7 +63,7 @@ def test_reply_stays_visible_and_repeated_escalation_reuses_the_task(monkeypatch
 def test_accidental_double_click_is_not_processed_twice():
     at = _maple_setup()
     db = at.session_state["db"]
-    _btn(at, "Check this customer's setup").click().run()
+    _btn(at, "Check whether a setup reminder is needed").click().run()
     _btn(at, "We see an authentication error.").click().run()
     n = lambda: db.one("SELECT COUNT(*) n FROM interactions WHERE actor='customer' AND origin='session'")["n"]
     first = n()
@@ -120,8 +120,8 @@ def test_empty_timeline_is_a_short_prompt_with_a_working_button():
     c = db.one("SELECT a.id, a.name FROM accounts a WHERE NOT EXISTS (SELECT 1 FROM interactions i WHERE i.account_id=a.id) AND EXISTS (SELECT 1 FROM journeys j WHERE j.account_id=a.id) LIMIT 1")
     _pick(at, c["id"])
     _goto(at, "customer")
-    assert f"No activity yet for {c['name']}. Check their setup to begin." in _text(at)
-    _btn(at, "Check this customer's setup").click().run()
+    assert f"No activity yet for {c['name']}. Open Setup support to begin." in _text(at)
+    _btn(at, "Open setup support").click().run()
     assert at.session_state["acct"] == c["id"] and f"Customer: {c['name']}" in _text(at)
 
 
@@ -144,7 +144,7 @@ def test_customer_without_products_shows_a_clear_message_not_blank_sections():
     _pick(at, prospect["id"])
     _goto(at, "customer")
     assert f"{prospect['name']} is still evaluating the product and has not bought anything yet" in _text(at)
-    assert not _has(at, "Check this customer's setup") and not at.exception
+    assert not _has(at, "Open setup support") and not at.exception
     _pick(at, FEATURED)
     _goto(at, "customer")
     page = _text(at)

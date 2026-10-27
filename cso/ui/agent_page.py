@@ -8,6 +8,7 @@ import pandas as pd
 import streamlit as st
 
 from .. import rules, services as S, session
+from ..db import to_iso
 from ..format import status, when
 from ..models import PRODUCT_LABEL, STATE_LABEL
 from .. import flags
@@ -29,11 +30,69 @@ TRIGGER = {"onboarding_check": "Onboarding check", "customer_reply": "Customer r
 
 
 # ------------------------------------------------------------- callbacks ---
-def _check(db, aid, jid):
+def _check(db, aid, jid, prod):
+    """Run the reminder check for this customer and product and keep a result that stays on screen until it is replaced."""
+    before = db.one("SELECT COALESCE(MAX(rid),0) r FROM interactions")["r"]
+    info = rules.reminder_check(db, jid)             # the rule results as they stand before the assistant acts
     try:
-        session.report_run(S.run_onboarding_check(db, aid, jid, session.mode(), session.llm_settings()))
+        res = S.run_onboarding_check(db, aid, jid, session.mode(), session.llm_settings())
     except Exception as e:  # keep the session alive on unexpected failures
         session.record_action(f"Something went wrong: {type(e).__name__}: {e}", tone="error", scope=("agent",))
+        return
+    if res.get("outcome") == "error":
+        st.session_state.pop("check_result", None)
+        session.report_run(res)
+        return
+    sent = db.one("SELECT * FROM interactions WHERE rid>? AND account_id=? AND journey_id=? AND actor='agent' AND kind='message' "
+                  "AND json_extract(signals,'$.message_kind')='proactive' ORDER BY rid LIMIT 1", (before, aid, jid))
+    if sent:
+        info["decision"], info["message"] = "eligible", sent
+        info["why"] = info["why"] or "The rules allowed a reminder."
+        info["next"] = "Read the prepared message below, or try a sample customer reply."
+    elif info["decision"] == "eligible":   # the rules allowed it but the assistant chose not to send
+        info.update(decision="none", why="The rules allow a reminder, but the assistant decided no message was needed right now.", next="You can try a sample customer reply below.")
+    task = db.one("SELECT id FROM human_tasks WHERE account_id=? AND product=? AND status!='resolved' ORDER BY created_at DESC LIMIT 1", (aid, prod))
+    info.update(account_id=aid, journey_id=jid, product=prod, task_id=task["id"] if task else None, run_id=res.get("run_id"))
+    st.session_state["check_result"] = info
+    st.session_state.pop("last_action", None)
+    st.session_state["nonce"] += 1
+
+
+def _to_workspace(aid, prod):
+    session.select(aid, prod)
+    session.goto("customer")
+
+
+def _show_check(db, aid, jid, prod):
+    r = st.session_state.get("check_result")
+    if not r or r["journey_id"] != jid or r["account_id"] != aid:     # a result belongs to one customer and product
+        return
+    name = db.one("SELECT name FROM accounts WHERE id=?", (aid,))["name"]
+    label = {"eligible": "Demo reminder prepared.", "paused": "Reminder paused.", "none": "No setup reminder needed."}[r["decision"]]
+    box = st.success if r["decision"] == "eligible" else st.info
+    with st.container(border=True):
+        st.markdown("**Result of your check**")
+        st.caption(f"Checked: {name} · {PRODUCT_LABEL[prod]} · demo time {when(r['checked_at'])}")
+        box(f"**Decision:** {label}")
+        st.markdown(f"**Why:** {r['why']}")
+        if r.get("next_eligible"):
+            st.markdown(f"**Next eligible reminder time:** {when(to_iso(r['next_eligible']))}, if nothing else is holding it back.")
+        if r["also"]:
+            st.markdown("**Also holding back a reminder:** " + "; ".join(r["also"]) + ".")
+        st.markdown(f"**Next step:** {r['next']}")
+        if r["main_code"] == "no_blocking_case" and r.get("task_id"):
+            st.button(f"Open {name.split()[0]}'s support task · {r['task_id']}", key="chk_task", on_click=_open_handoff, args=(r["task_id"],), type="primary")
+        if r["main_code"] == "setup_incomplete":
+            st.button("Open Customer workspace", key="chk_ws", on_click=_to_workspace, args=(aid, prod))
+        if r.get("message"):
+            st.markdown("**Prepared message**")
+            style.bubble(r["message"])
+            st.caption("This is a simulated message. No real customer was contacted.")
+        else:
+            st.caption("No message was prepared or sent.")
+        with st.expander("See decision details"):
+            st.caption("The rules are checked in code. “Holding” means a condition is not met right now, which is often expected. The thresholds are demo values.")
+            st.dataframe(pd.DataFrame([{"Rule": d["rule"], "Status": "Clear" if d["met"] else "Holding", "Detail": d["note"]} for d in r["details"]]), hide_index=True, width="stretch")
 
 
 DEBOUNCE_S = 2.0  # the same reply clicked again within this many seconds is treated as an accidental double click
@@ -140,15 +199,17 @@ def render():
     st.markdown(f"**Where things stand.** {dec['headline']}")
     session.show_flash()
 
-    st.markdown("##### Proactive outreach: the system starts a conversation")
-    st.caption("The assistant reaches out only when the rules allow it: after the planned rollout date, when setup has stalled, within message limits, and with no open support blocker.")
-    st.button("Check this customer's setup", type="primary", on_click=_check, args=(db, aid, jid),
-              help="The assistant looks at the customer's goal, progress and history, then decides whether to send help. It may decide to do nothing.")
+    st.markdown("##### Reminder check: should the system start or follow up on a conversation?")
+    st.markdown("Check this customer's setup progress, recent messages, rollout timing, and support issues to decide whether a reminder is appropriate. This demo does not send real messages.")
+    if st.button("Check whether a setup reminder is needed", type="primary", key="check_btn"):
+        with st.spinner("Checking setup…"):
+            _check(db, aid, jid, prod)
+    st.caption("Checking does not complete setup, resolve a support issue, or guarantee a reminder. Repeated checks cannot skip waiting periods or create duplicate messages.")
+    _show_check(db, aid, jid, prod)
 
-    st.markdown("##### Incoming customer request: the customer asks for help")
+    st.markdown("##### Try a customer response: how should the assistant respond when the customer asks for help?")
     st.caption("When a customer writes in, the assistant can respond even if proactive reminders are paused.")
     can_reply = j["state"] not in ("completed", "opted_out")
-    st.markdown("**Try a customer response**")
     st.markdown("Select an example to see how the assistant responds. You are simulating the customer's reply for this demo.")
     cols = st.columns(2)
     for i, (label, text, complete) in enumerate(SCENARIOS):
@@ -177,7 +238,7 @@ def render():
     texts = [m for m in msgs if m["kind"] == "message"]
     st.markdown("##### Latest exchange")
     if not texts:
-        st.caption("Nothing here yet. Check this customer's setup, or select a customer response above.")
+        st.caption("Nothing here yet. Run the reminder check, or select a customer response above.")
     else:
         st.caption("The newest customer reply and the assistant's response. This stays on screen after every click.")
         i = next((n for n, m in enumerate(texts) if m["actor"] == "customer"), None)

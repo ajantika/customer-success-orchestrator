@@ -114,7 +114,7 @@ def _on_acct():
 
 def _on_prod():
     st.session_state["prod"] = st.session_state.get("w_prod")
-    for k in ("task", "sel_run", "reply_text", "last_action"):
+    for k in ("task", "sel_run", "reply_text", "last_action", "check_result"):
         st.session_state.pop(k, None)   # a different product means a different conversation and task
 
 

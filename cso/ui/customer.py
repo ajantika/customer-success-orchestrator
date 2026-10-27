@@ -139,8 +139,8 @@ def render():
     items = db.q("SELECT * FROM interactions WHERE account_id=? ORDER BY rid DESC LIMIT 200", (aid,))
     if not items:
         if subs:
-            st.info(f"No activity yet for {acc['name']}. Check their setup to begin.")
-            st.button("Check this customer's setup", on_click=_open_setup, args=(aid,), key="tl_setup", type="primary")
+            st.info(f"No activity yet for {acc['name']}. Open Setup support to begin.")
+            st.button("Open setup support", on_click=_open_setup, args=(aid,), key="tl_setup", type="primary")
         else:
             st.info(f"No activity yet for {acc['name']}. There is no setup to check because they have not bought anything.")
         return
