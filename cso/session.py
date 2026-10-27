@@ -26,7 +26,7 @@ def get_db() -> DB:
 
 
 # Everything below belongs to one customer. Choosing a different customer clears it so nothing from the previous customer can show up.
-PER_CUSTOMER_KEYS = ("prod", "task", "meeting", "sel_run", "_latest_run", "reply_text", "example_pick", "last_action", "team_scan", "_last_reply", "flash")
+PER_CUSTOMER_KEYS = ("prod", "task", "meeting", "sel_run", "_latest_run", "reply_text", "example_pick", "last_action", "check_result", "team_scan", "_last_reply", "flash")
 
 
 def select(acct: str | None, prod: str | None = None, **extra):

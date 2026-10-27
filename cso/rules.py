@@ -346,7 +346,7 @@ def plain_decision(db: DB, journey_id: str) -> dict:
     elif "missing_data" in blocked:
         h, n, tone = "Essential information is missing, so the assistant will not guess.", "Add the missing information before deciding whether to reach out.", "attention"
     elif "stale_data" in blocked:
-        h, n, tone = "Usage data is out of date. Refresh it before deciding whether outreach is needed.", "Refresh the product data, then check this customer again.", "attention"
+        h, n, tone = "Usage data is out of date, so the assistant will not decide whether to contact the customer.", "No reminder can be prepared until recent data is available. The customer can still ask for help.", "attention"
     elif "no_blocking_case" in blocked:
         h, n, tone = "Support is working on a blocker, so automated reminders are paused.", "Follow the support task. Setup reminders resume after it is resolved.", "wait"
     elif "rollout_started" in blocked:
@@ -368,3 +368,95 @@ def plain_decision(db: DB, journey_id: str) -> dict:
         nm = pr["next_milestone"]["customer_label"] if pr["next_milestone"] else "the next step"
         h, n, tone = "Setup has stalled, so the assistant can offer help.", f"Check this customer's setup to send guidance for: {nm}.", "attention"
     return {"headline": h, "next_step": n, "tone": tone, "details": details, "allowed": el.allowed}
+
+
+# ------------------------------------------------------ reminder check ---
+def _day(dt) -> str:
+    return f"{dt:%B} {dt.day}"
+
+
+def _days(n: int) -> str:
+    return f"{n} day" + ("" if n == 1 else "s")
+
+
+def _moment(dt) -> str:
+    return f"{_day(dt)} at {dt.strftime('%I:%M %p').lstrip('0')}"
+
+
+def reminder_check(db: DB, journey_id: str) -> dict:
+    """Explain, from the actual rule results, whether a proactive setup reminder is appropriate right now.
+
+    Returns decision ('paused' | 'none' | 'eligible'), a main reason with its next step, brief additional reasons, the earliest time the
+    message limits would allow another reminder (when that is the cause) and the rule table. It changes nothing."""
+    j = db.one("SELECT * FROM journeys WHERE id=?", (journey_id,))
+    aid, prod = j["account_id"], j["product"]
+    st = db.get_settings()
+    now = db.now()
+    el = evaluate_outreach(db, journey_id)
+    failed = {c.code: c for c in el.checks if not c.passed}
+    acc = db.one("SELECT data_refreshed_at FROM accounts WHERE id=?", (aid,))
+    plan = db.one("SELECT planned_start FROM rollout_plans WHERE account_id=? AND product=?", (aid, prod))
+    pr = progress(db, aid, prod)
+    nm = pr["next_milestone"]["customer_label"] if pr["next_milestone"] else None
+    times = _proactive_times(db, aid)
+    reasons: list[dict] = []   # in priority order: the first is the main reason
+    nxt_eligible = None
+
+    def add(code, decision, why, short, nxt):
+        reasons.append({"code": code, "decision": decision, "why": why, "short": short, "next": nxt})
+
+    if "opt_out" in failed or j["state"] == "opted_out":
+        add("opt_out", "paused", "The customer asked not to be contacted, so no reminders are sent.", "the customer opted out",
+            "Respect the opt-out. You can still try an incoming customer question below.")
+    if "setup_incomplete" in failed or j["state"] == "completed":
+        add("setup_incomplete", "none", "This customer has completed the required setup steps.", "setup is complete",
+            "Review ongoing usage in Customer workspace.")
+    if "missing_data" in failed:
+        add("missing_data", "paused", failed["missing_data"].message.replace("Missing essential data: ", "Essential information is missing: ") + ".",
+            "essential information is missing", "The assistant will not guess. Add the missing information, or try an incoming customer question below.")
+    if "stale_data" in failed:
+        when_ = _day(from_iso(acc["data_refreshed_at"])) if acc and acc["data_refreshed_at"] else None
+        add("stale_data", "paused", (f"Usage data was last updated on {when_}. " if when_ else "Usage data has never been updated. ") +
+            "The system needs recent information before deciding whether to contact the customer.", "usage data is out of date",
+            "No reminder can be prepared until recent data is available. You can still try an incoming customer question below.")
+    if "no_blocking_case" in failed:
+        add("no_blocking_case", "paused", "A support issue is blocking setup, so reminders are paused until it is resolved.", "a support issue is open",
+            "Follow the support task for this customer. Setup reminders resume after it is resolved.")
+    if "rollout_started" in failed:
+        pu = from_iso(j["paused_until"]) if j["paused_until"] else None
+        if plan and from_iso(plan["planned_start"]) > now:
+            add("rollout_started", "paused", f"This customer's rollout is scheduled for {_day(from_iso(plan['planned_start']))}. Setup reminders are not due yet.", "the rollout has not started",
+                "Review the rollout plan. You can still try an incoming customer question below.")
+        elif pu and pu > now:
+            add("rollout_started", "paused", f"The customer asked to wait until {_day(pu)}. Setup reminders are not due yet.", "the customer asked to wait",
+                "No action needed until then. You can still try an incoming customer question below.")
+        else:
+            add("rollout_started", "paused", "There is no rollout date on file, so the assistant will not start outreach.", "no rollout date on file",
+                "Confirm the customer's rollout plan. You can still try an incoming customer question below.")
+    if "frequency" in failed:
+        last7 = [t for t in times if now - t <= timedelta(days=7)]
+        cands = []
+        if times and now - times[-1] < timedelta(hours=st.min_hours_between_messages):
+            cands.append(times[-1] + timedelta(hours=st.min_hours_between_messages))
+        if len(last7) >= st.max_messages_per_7d:
+            cands.append(last7[len(last7) - st.max_messages_per_7d] + timedelta(days=7))
+        nxt_eligible = max(cands) if cands else None
+        add("frequency", "paused", f"This customer was contacted recently (last reminder {_moment(times[-1])})." if times else "This customer was contacted recently.",
+            "a reminder was sent recently",
+            "View the previous message in the conversation below, or try a sample customer reply.")
+        reasons[-1]["why"] += " The system is waiting before preparing another reminder."
+    if "unanswered_cap" in failed:
+        add("unanswered_cap", "paused", "Earlier reminders have not been answered, so the assistant has stopped sending more.", "earlier reminders were not answered",
+            "Consider another channel or a call. You can still try a customer reply below.")
+    if "stalled" in failed and "rollout_started" not in failed:
+        base = max(from_iso(plan["planned_start"]), from_iso(pr["last_progress_at"])) if plan and pr["last_progress_at"] else (from_iso(plan["planned_start"]) if plan else now)
+        add("stalled", "none", f"Setup is progressing: the last progress was {_days((now - base).days)} ago. The assistant offers help after {st.stall_threshold_days} days without progress.",
+            "setup progress is recent", (f"Next setup step: {nm}. " if nm else "") + "You can try a sample customer reply below.")
+    main = reasons[0] if reasons else None
+    if el.allowed:
+        idle = (now - (max(from_iso(plan["planned_start"]), from_iso(pr["last_progress_at"])) if pr["last_progress_at"] else from_iso(plan["planned_start"]))).days if plan else 0
+        why = (f"Setup has had no progress for {_days(idle)} (the system offers help after {_days(st.stall_threshold_days)})" + (f" and the next step, “{nm}”, is still incomplete." if nm else "."))
+        main = {"code": "eligible", "decision": "eligible", "why": why, "short": "", "next": "Read the prepared message below, or try a sample customer reply."}
+    return {"decision": main["decision"] if main else "none", "why": main["why"] if main else "", "next": main["next"] if main else "", "main_code": main["code"] if main else None,
+            "also": [r["short"] for r in reasons[1:]], "next_eligible": nxt_eligible, "allowed": el.allowed, "checked_at": to_iso(now),
+            "details": [{"rule": RULE_LABEL.get(c.code, c.code.replace("_", " ")), "met": c.passed, "note": c.message} for c in el.checks]}
